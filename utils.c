@@ -1,8 +1,11 @@
+#include "utils.h"
+
+
 unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	int i;
 	unsigned char data[1024];
-	unsigned int digest_size = 32;			//penso che ci sia una costante nella libreria ma non la trovo
-	unsigned char hash[digest_size];
+	unsigned int digest_size = EVP_MD_size(EVP_sha256());	
+	unsigned char* hash = malloc(digest_size);
 	int read_bytes;
 	FILE* input_file;
 	
@@ -37,4 +40,31 @@ unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	printf("\n");
 	
 	return hash;
+}
+
+/*
+* Computes the hash function SHA256 on "source" buffer, AND on the content of file "name_file" if it is non-NULL
+* then compares it with the content of "hash_val" buffer
+* Returns 1 if the integrity is verified, 0 otherwise, -1 in case of errors
+*/
+int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigned char* hash_val){
+	unsigned char* computed_hash;
+	int ret;
+	
+	/*Checks*/
+	if(source == NULL || hash_val == NULL || source_size <= 0)
+		return -1;
+		
+	/*Computes the hash function on source buffer and on file (if needed)*/
+	computed_hash = do_hash(source, source_size, name_file);
+	
+	/*Checks if they are equals*/
+	ret = CRYPTO_memcmp(computed_hash, hash_val, EVP_MD_size(EVP_sha256()));
+	
+	free(computed_hash);
+	
+	if(ret == 0)
+		return 1;
+	else
+		return 0;
 }
