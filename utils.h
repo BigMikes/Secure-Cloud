@@ -1,0 +1,1 @@
+unsigned char* do_hash(unsigned char* source, int source_size, char* name_file);
