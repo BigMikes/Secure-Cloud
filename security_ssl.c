@@ -41,7 +41,6 @@ SSL_CTX* create_SSL_context_client(const char* CA_cert_file){
     	return ctx;
 }
  
-
 //funzione che crea il contesto per il server, passargli il path del certificato del server e della sua chiave privata
 SSL_CTX* create_SSL_context_server(const char* cert_file, const char* prvkey_file){
 	SSL_CTX* ctx;
@@ -99,6 +98,7 @@ SSL_CTX* create_SSL_context_server(const char* cert_file, const char* prvkey_fil
     	
     	return ctx;
 }
+
 //funzione che associa un socket al SSL_socket
 SSL* bind_socket_to_SSL(SSL_CTX* ctx, int sock){
 	SSL* ssl_sock;
