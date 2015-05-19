@@ -39,7 +39,7 @@ unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	EVP_MD_CTX_cleanup(&sha_ctx);
 	
 	printf("sha256 of the passed data is: \n");
-	for(i = 0 ; i <= digest_size ; i++)
+	for(i = 0 ; i < digest_size ; i++)
 		printf("%02x", hash[i]);
 	printf("\n");
 	
