@@ -8,12 +8,10 @@ int pem_passwd_cb(char *buf, int size, int rwflag, void *password){
  	//**********************************************************************************************vulnerabilità di segmentation fault, input > buffer size
 	buf[size - 1] = '\0';
 	return(strlen(buf));
- }
- 
+}
 
-//funzione che crea il contesto, i parametri all'inizio potranno essere pochi ed elementari, più avanti si darà la possibilità
-//di creare una sessione ssl passandogli i certificati da usare, password, etc etc
-SSL_CTX* create_SSL_context(const char* cert_file, const char* prvkey_file){
+//funzione che crea il contesto per il client, passargli il path del certificato della CA
+SSL_CTX* create_SSL_context_client(const char* CA_cert_file){
 	SSL_CTX* ctx;
 	int error;
 	int i;
@@ -33,9 +31,47 @@ SSL_CTX* create_SSL_context(const char* cert_file, const char* prvkey_file){
     	
     	SSL_CTX_set_cipher_list(ctx, SSL_CIPHERS);
     	
+    	error = SSL_CTX_load_verify_locations(ctx, CA_cert_file,, NULL); 
+    	if(error != 1){
+    		fprintf(stderr, "Can't load CA certificate: %s\n", ERR_error_string(ERR_get_error(), NULL));
+    		SSL_CTX_free(ctx);
+        	return NULL;
+    	}
+    	
+    	return ctx;
+}
+ 
+
+//funzione che crea il contesto per il server, passargli il path del certificato del server e della sua chiave privata
+SSL_CTX* create_SSL_context_server(const char* cert_file, const char* prvkey_file){
+	SSL_CTX* ctx;
+	int error;
+	int i;
+	
+	if(cert_file == NULL || prvkey_file == NULL){
+		printf("Error server: cert_file or prvkey_file are null\n");
+		return NULL;
+	}
+	
+	SSL_library_init();
+	
+	SSL_load_error_strings();
+	
+	ctx = SSL_CTX_new(SSLv23_method());
+
+    	if (ctx == NULL) {
+        	fprintf(stderr, "Can't initialize SSL_CTX\n");
+        	return NULL;
+    	}
+    	//abilito write parziali (cioè scrivono meno byte di quelli specificati) e il release dei buffer nelle connessioni ssl idle, per risparmiare ram
+    	SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS); 	//SSL_MODE_ENABLE_PARTIAL_WRITE rimosso per ora
+    	
+    	SSL_CTX_set_cipher_list(ctx, SSL_CIPHERS);
+    	
     	error = SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM);
     	if(error != 1){
     		fprintf(stderr, "Can't load public certificate: %s\n", ERR_error_string(ERR_get_error(), NULL));
+    		SSL_CTX_free(ctx);
         	return NULL;
     	}
     	
@@ -46,6 +82,7 @@ SSL_CTX* create_SSL_context(const char* cert_file, const char* prvkey_file){
     	error = SSL_CTX_use_PrivateKey_file(ctx, prvkey_file, SSL_FILETYPE_PEM);
     	if(error != 1){
     		fprintf(stderr, "Can't load private key, wrong password maybe?\n");
+    		SSL_CTX_free(ctx);
         	return NULL;
     	}
     	
@@ -54,6 +91,7 @@ SSL_CTX* create_SSL_context(const char* cert_file, const char* prvkey_file){
     	error = SSL_CTX_check_private_key(ctx);
     	if(error != 1){
     		fprintf(stderr, "Private key does not match the public certificate.\n");
+    		SSL_CTX_free(ctx);
         	return NULL;
     	}
     	//non è richiesta l'autenticazione del client (visto che agiremo sul web)
