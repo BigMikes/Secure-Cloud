@@ -9,7 +9,7 @@
 
 
 SSL_CTX* create_SSL_context_server(const char* cert_file, const char* prvkey_file);
-SSL_CTX* create_SSL_context_client(const char* CA_cert_file)
+SSL_CTX* create_SSL_context_client(const char* CA_cert_file);
 SSL* bind_socket_to_SSL(SSL_CTX* ctx, int sock);
 int client_connect(SSL* ssl_sock);
 int server_accept(SSL* ssl_sock);

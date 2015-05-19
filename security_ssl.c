@@ -31,7 +31,7 @@ SSL_CTX* create_SSL_context_client(const char* CA_cert_file){
     	
     	SSL_CTX_set_cipher_list(ctx, SSL_CIPHERS);
     	
-    	error = SSL_CTX_load_verify_locations(ctx, CA_cert_file,, NULL); 
+    	error = SSL_CTX_load_verify_locations(ctx, CA_cert_file, NULL); 
     	if(error != 1){
     		fprintf(stderr, "Can't load CA certificate: %s\n", ERR_error_string(ERR_get_error(), NULL));
     		SSL_CTX_free(ctx);
@@ -129,7 +129,6 @@ int server_accept(SSL* ssl_sock){
 	error = SSL_accept(ssl_sock);
 	if(error != 1){
 		fprintf(stderr, "Error during the SSL handshake: %s\n", ERR_error_string(ERR_get_error(), NULL));
-		SSL_free(ssl_sock);
         	return -1;
 	}
 	
@@ -142,7 +141,6 @@ int client_connect(SSL* ssl_sock){
 	error = SSL_connect(ssl_sock);
 	if(error != 1){
 		fprintf(stderr, "Error during the SSL handshake: %s\n", ERR_error_string(ERR_get_error(), NULL));
-		SSL_free(ssl_sock);
         	return -1;
 	}
 	
