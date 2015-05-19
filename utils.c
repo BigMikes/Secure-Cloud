@@ -9,6 +9,8 @@ unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	int read_bytes;
 	FILE* input_file;
 	
+	if(source == NULL || source_size <= 0)
+	
 	EVP_MD_CTX sha_ctx;
 	EVP_MD_CTX_init(&sha_ctx);
 	
