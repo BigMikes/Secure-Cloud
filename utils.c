@@ -1,6 +1,9 @@
 #include "utils.h"
 
-
+/*
+* Computes the hash function SHA256 on "source" buffer, AND on the content of file "name_file" if it is non-NULL
+* Returns the hash value, NULL in case of errors
+*/
 unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	int i;
 	unsigned char data[1024];
@@ -71,4 +74,37 @@ int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigne
 		return 1;
 	else
 		return 0;
+}
+
+/*
+* Crypting function AES256-CBC on "source" buffer (if non-NULL), AND on the content of file "name_file" (if non-NULL)
+* It is an error if "source" and "name_file" are both equal to NULL.
+* Returns the ciphertext, NULL in case of errors
+*/
+unsigned char* sym_crypto(unsigned char* source, int source_size, char* name_file, unsigned char* key){
+	EVP_CIPHER_CTX* ctx;
+	FILE* fd;
+	unsigned char* ciphertext;
+	unsigned char* plaintext;
+	
+	if((source == NULL && name_file == NULL) || key == NULL)
+		return NULL;
+	
+	if(name_file != NULL){
+		fd = fopen(name_file, "r");
+		if(fd == NULL){
+			printf("Impossible to open %s file\n", name_file);
+			return NULL;
+		}
+	}
+	
+	ctx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));	
+	EVP_CIPHER_CTX_init(ctx);
+	EVP_EncryptInit(ctx, SYM_CIPHER, key, NULL);		//Cosa fare con l' IV?
+	
+	
+	
+	
+	EVP_CIPHER_CTX_cleanup(ctx);
+	free(ctx);
 }
