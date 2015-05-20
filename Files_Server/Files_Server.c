@@ -1,3 +1,8 @@
+/*
+ * Password private key = "password"
+*/
+
+
 #include "../security_ssl.h"
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -78,10 +83,12 @@ int accept_client(int server_sk){
 
 //funzione che libera tutte le strutture dati del server
 void server_cleanup(struct server_ctx* server){
+	/*
 	if(server->certif_path != NULL)
 		free(server->certif_path);
 	if(server->prvkey_path != NULL)
 		free(server->prvkey_path);
+	*/
 	if(server->address != NULL)
 		free(server->address);
 	if(server->connection != NULL){
@@ -100,6 +107,8 @@ void server_cleanup(struct server_ctx* server){
 int main(int argc, char* argv[]){
 	int ret;
 	struct server_ctx server;
+	unsigned char buffer[1024];
+	
 	memset(&server, 0, sizeof(struct server_ctx));
 	//controllo che i parametri obbligatori (address e port) ci siano
 	if(argc < 3){
@@ -143,6 +152,8 @@ int main(int argc, char* argv[]){
 		exit(-1);
 	}
 	
+	secure_read(0, &buffer, 5, server.connection);
+	printf("Received: %s\n", &buffer);
 	
 	server_cleanup(&server);
 	exit(0);
