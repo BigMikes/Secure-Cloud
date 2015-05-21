@@ -2,14 +2,24 @@
  * Password private key = "password"
 */
 
-
 #include "../security_ssl.h"
+#include "../utils.h"
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <stdio.h>
 #include <string.h>
 
+/*---------CONSTANTS---------*/
+#define NO_AUTH -1
+#define UPLOAD 1
+#define DOWNLOAD 2
+#define HASH_DIM EVP_MD_size(EVP_sha256())
+#define MAX_USR_NAME 20
 
+/*---------ERROR MESSAGES----*/
+#define AUTH_ERR "Authentication failed\0"
+
+//Server context
 struct server_ctx{
 	int server_sk;
 	int to_client_sk;
@@ -19,6 +29,7 @@ struct server_ctx{
 	char* prvkey_path;
 	char* address;
 	int port;
+	unsigned char buffer[1024];
 };
 
 
@@ -103,11 +114,158 @@ void server_cleanup(struct server_ctx* server){
 		SSL_CTX_free(server->ssl_factory);
 }
 
+/*
+* Function that checks the password
+*/
+int find_usr_pwd(unsigned char* username, unsigned char* pwd, int dim_pwd){
+    FILE *fp;
+    int lines = 0;   // count how many lines are in the file
+    int j = 0;
+    int c;
+    unsigned char* hash_pwd;
+    char tmp_user[MAX_USR_NAME]; 		//Dimensione massima del nome utente 
+    char tmp_pwd[HASH_DIM];
+    int ret;
+    
+    fp = fopen("pwd.txt", "r");
+    if(fp == NULL)
+    	return -1;
+    
+    while(!feof(fp)) {
+        c=fgetc(fp);
+        if(c == '\n')
+            lines++;
+    }
+    
+    if(lines == 0){
+    	fclose(fp);
+    	return -1;
+    }
+    
+    hash_pwd = do_hash(pwd, dim_pwd, NULL);
+    
+    rewind(fp);  // Line I added
+        // read each line and put into accounts
+    while(j != lines) {
+        fscanf(fp, "%s ", tmp_user);
+        fread(tmp_pwd, HASH_DIM, 1, fp);
+        if(strcmp(tmp_user, username) == 0){
+        	ret = CRYPTO_memcmp(hash_pwd, tmp_pwd, HASH_DIM);
+        	free(hash_pwd);
+        	fclose(fp);
+        	return (ret == 0)? 1 : 0;
+        }
+       	j++;
+    }
+    free(hash_pwd);
+    fclose(fp);
+    return -1;
+}
+
+/*
+* Function that adds a new user given his/her username and password
+*/
+int add_usr_pwd(unsigned char* username, unsigned char* pwd, int dim_pwd){
+    FILE *fp;
+    unsigned char* hash_pwd;
+    int ret;
+    
+    fp = fopen("pwd.txt", "a");
+    if(fp == NULL)
+    	return -1;
+    
+    hash_pwd = do_hash(pwd, dim_pwd, NULL);
+    
+    fprintf(fp, "%s ", username);
+    fwrite(hash_pwd, HASH_DIM, 1, fp); 
+    fprintf(fp, "\n");
+    free(hash_pwd);
+    fclose(fp);
+    return 1;
+}
+
+/*
+* Authenticates the client and returns the command that he/she wants perform.
+* Return NO_AUTH in case of error or bad client password
+*/
+int authenticate_client(SSL* conn){
+	int dim;
+	int ret;
+	int dim_pwd;
+	unsigned char* username;
+	unsigned char* pwd;
+	uint8_t cmd;
+	if(conn == NULL)
+		return NO_AUTH;
+	//Reads the username	
+	ret = secure_read(0, &dim, sizeof(int), conn);
+	if(ret != sizeof(int))
+		return NO_AUTH;
+	username = calloc(dim, sizeof(char));
+	if(username == NULL)
+		return NO_AUTH;
+	ret = secure_read(0, username, dim, conn);
+	if(ret != dim){
+		free(username);
+		return NO_AUTH;
+	}
+	//Reads the password	
+	ret = secure_read(0, &dim, sizeof(int), conn);
+	if(ret != sizeof(int)){
+		free(username);
+		return NO_AUTH;
+	}
+	pwd = calloc(dim, sizeof(char));
+	if(pwd == NULL){
+		free(username);
+		return NO_AUTH;
+	}
+	ret = secure_read(0, pwd, dim, conn);
+	if(ret != dim){
+		free(username);
+		memset(pwd, 0, ret);
+		free(pwd);
+		return NO_AUTH;
+	}
+	dim_pwd = ret;
+	//Reads the command
+	ret = secure_read(0, &cmd, sizeof(uint8_t), conn);
+	if(ret != sizeof(uint8_t)){
+		free(username);
+		memset(pwd, 0, dim_pwd);
+		free(pwd);
+		return NO_AUTH;
+	}
+	
+	ret = find_usr_pwd(username, pwd, dim_pwd);
+	free(username);
+	memset(pwd, 0, dim_pwd);
+	free(pwd);
+	if(ret == 1)
+		return (int)cmd;
+	else 
+		return NO_AUTH;
+}
+
+
+int disconnect(struct server_ctx* server){
+	int ret = SSL_shutdown(server->connection);
+	if(ret != 1)
+		return -1;
+	close(server->to_client_sk);
+	SSL_free(server->connection);
+	return 1;
+}
+
+
+void send_error(SSL* conn, unsigned char* msg){
+	secure_write(0, msg, strlen(msg), conn);
+}
 
 int main(int argc, char* argv[]){
 	int ret;
 	struct server_ctx server;
-	unsigned char buffer[1024];
+	int end = 1;
 	
 	memset(&server, 0, sizeof(struct server_ctx));
 	//controllo che i parametri obbligatori (address e port) ci siano
@@ -145,15 +303,38 @@ int main(int argc, char* argv[]){
 		server_cleanup(&server);
 		exit(-1);
 	}
-	//accept new ssl connection	
-	ret = server_accept(server.connection);
-	if(ret != 1){
-		server_cleanup(&server);
-		exit(-1);
-	}
-	
-	secure_read(0, &buffer, 5, server.connection);
-	printf("Received: %s\n", &buffer);
+	while(end){
+		//accept new ssl connection	
+		ret = server_accept(server.connection);
+		if(ret != 1){
+			server_cleanup(&server);
+			exit(-1);
+		}
+		/*---------------------------THE PROTOCOL-------------------------------*/
+		
+		
+		ret = authenticate_client(server.connection);
+		/*DEBUG*/
+		if(ret != -1)
+			printf("AUTHENTICATED\n");
+		
+		switch(ret){
+			case UPLOAD:					
+				break;
+			case DOWNLOAD:
+				break;
+			
+			/*Authentication failed or errors occur*/	
+			default:
+			case NO_AUTH:
+				/*DEBUG*/printf("NOT AUTHENTICATED\n");
+				send_error(server.connection, AUTH_ERR);
+				ret = disconnect(&server);
+				if(ret != 1)
+					end = 0;
+				break;
+		}
+	}	
 	
 	server_cleanup(&server);
 	exit(0);
