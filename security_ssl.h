@@ -2,6 +2,9 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/err.h>
+#include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <unistd.h>
 
 #define SSL_CIPHERS "ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS"
