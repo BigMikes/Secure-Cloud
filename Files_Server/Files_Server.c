@@ -8,13 +8,19 @@
 #include <sys/socket.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /*---------CONSTANTS---------*/
+#define FILE_STORE "./File_store/"
+#define BUF_DIM 512
 #define NO_AUTH -1
 #define UPLOAD 1
 #define DOWNLOAD 2
 #define HASH_DIM EVP_MD_size(EVP_sha256())
 #define MAX_USR_NAME 20
+#define MAX_FILE_NAME 20
+#define AUTH_FAIL 0
+#define AUTH_OK 1
 
 /*---------ERROR MESSAGES----*/
 #define AUTH_ERR "Authentication failed\0"
@@ -29,9 +35,13 @@ struct server_ctx{
 	char* prvkey_path;
 	char* address;
 	int port;
-	unsigned char buffer[1024];
 };
 
+
+struct client_ctx{
+	char name[MAX_USR_NAME];
+	char file_name[MAX_FILE_NAME];
+};
 
 void help(){
 	char* options_msg = "Usage: Files_server <ip address> <port number>\n\
@@ -185,49 +195,77 @@ int add_usr_pwd(unsigned char* username, unsigned char* pwd, int dim_pwd){
 }
 
 /*
+* Reads the messages in format <size>||<content>
+* The return buffer will contain the <content>
+* The parameter value will contain the the <size> 
+* Returns NULL in case of errors
+*/
+void* read_formatted(SSL* conn, int* size){
+	int ret;
+	void* buffer;
+	int dim; 
+	
+	ret = secure_read(0, &dim, sizeof(int), conn);
+	if(ret != sizeof(int))
+		return NULL;
+	buffer = calloc(dim, sizeof(char));
+	if(buffer == NULL)
+		return NULL;
+	ret = secure_read(0, buffer, dim, conn);
+	if(ret != dim){
+		memset(buffer, 0, ret);
+		free(buffer);
+		return NULL;
+	}
+	
+	*size = dim;
+	return buffer;
+}
+
+/*
 * Authenticates the client and returns the command that he/she wants perform.
 * Return NO_AUTH in case of error or bad client password
 */
-int authenticate_client(SSL* conn){
+int authenticate_client(SSL* conn, struct client_ctx* client){
 	int dim;
 	int ret;
 	int dim_pwd;
 	unsigned char* username;
 	unsigned char* pwd;
+	unsigned char* file_name;
 	uint8_t cmd;
+	
 	if(conn == NULL)
 		return NO_AUTH;
 	//Reads the username	
-	ret = secure_read(0, &dim, sizeof(int), conn);
-	if(ret != sizeof(int))
-		return NO_AUTH;
-	username = calloc(dim, sizeof(char));
-	if(username == NULL)
-		return NO_AUTH;
-	ret = secure_read(0, username, dim, conn);
-	if(ret != dim){
-		free(username);
+	username = read_formatted(conn, &dim);
+	if(username == NULL){
 		return NO_AUTH;
 	}
+	/*DEBUG*/
+	//printf("%s\n", username);
+	
+	strcpy(client->name, username);
+	
 	//Reads the password	
-	ret = secure_read(0, &dim, sizeof(int), conn);
-	if(ret != sizeof(int)){
-		free(username);
-		return NO_AUTH;
-	}
-	pwd = calloc(dim, sizeof(char));
+	pwd = read_formatted(conn, &dim_pwd);
 	if(pwd == NULL){
 		free(username);
 		return NO_AUTH;
 	}
-	ret = secure_read(0, pwd, dim, conn);
-	if(ret != dim){
+	/*DEBUG*/
+	//printf("%s\n", pwd);
+	
+	//Checks for the validity of the password
+	ret = find_usr_pwd(username, pwd, dim_pwd);
+	memset(pwd, 0, dim_pwd);
+	free(pwd);
+	
+	if(ret != 1){
 		free(username);
-		memset(pwd, 0, ret);
-		free(pwd);
 		return NO_AUTH;
 	}
-	dim_pwd = ret;
+	
 	//Reads the command
 	ret = secure_read(0, &cmd, sizeof(uint8_t), conn);
 	if(ret != sizeof(uint8_t)){
@@ -236,35 +274,91 @@ int authenticate_client(SSL* conn){
 		free(pwd);
 		return NO_AUTH;
 	}
+	/*DEBUG*/
+	//printf("%i\n", cmd);
 	
-	ret = find_usr_pwd(username, pwd, dim_pwd);
-	free(username);
-	memset(pwd, 0, dim_pwd);
-	free(pwd);
-	if(ret == 1)
-		return (int)cmd;
-	else 
+	//Reads the file name
+	file_name = read_formatted(conn, &dim);
+	if(file_name == NULL){
+		free(username);
 		return NO_AUTH;
+	}
+	/*DEBUG*/
+	//printf("%s\n", file_name); 
+	
+	strcpy(client->file_name, file_name);
+	
+	free(file_name);
+	free(username);
+	return (int)cmd;
 }
 
 
 int disconnect(struct server_ctx* server){
 	int ret = SSL_shutdown(server->connection);
-	if(ret != 1)
-		return -1;
 	close(server->to_client_sk);
 	SSL_free(server->connection);
-	return 1;
+	return ret;
 }
 
 
-void send_error(SSL* conn, unsigned char* msg){
-	secure_write(0, msg, strlen(msg), conn);
+void send_code(SSL* conn, uint8_t code){
+	secure_write(0, &code, sizeof(code), conn);
+}
+
+
+
+int upload(SSL* conn, struct client_ctx* client){
+	FILE* fd;
+	int dim;
+	int ret;
+	unsigned char buffer[BUF_DIM];
+	int n_rounds;			//number of read-write cycles
+	int last_round;			//number of bytes to transfer at last round 
+	int i;
+	char* filestore = malloc(strlen(FILE_STORE) + strlen(client->name) + strlen(client->file_name));
+	
+	
+	//fetch the client directory
+	strcpy(filestore, FILE_STORE);
+	strcat(filestore, client->name);
+	mkdir(filestore, S_IRWXU);
+	
+	//create/open the file
+	strcat(filestore, client->file_name);
+	fd = fopen(filestore, "r");
+	
+	//Reads the size of ciphertext
+	ret = secure_read(0, &dim, sizeof(int), conn);
+	if(ret != sizeof(int))
+		return -1; 
+	
+	n_rounds = dim / BUF_DIM;
+	last_round = dim % BUF_DIM;
+	
+	for(i = 0; i < n_rounds; i++){
+		ret = secure_read(0, buffer, BUF_DIM, conn);
+		if(ret != BUF_DIM){			//if there is a partial read, add the #bytes not readed at the last round 
+             		last_round += BUF_DIM - ret;	//but we are over TCP so there should not be this kind of problem
+		}
+		ret = fwrite(buffer, sizeof(char), ret, fd);
+		//gestione write parziale----------------------------****************************
+	}
+	//last round
+	ret = secure_read(0, buffer, last_round, conn);
+	ret = fwrite(buffer, sizeof(char), ret, fd);
+	
+	//then take the key, and handle it	
+}
+
+int download(SSL* conn, struct client_ctx* client){
+
 }
 
 int main(int argc, char* argv[]){
 	int ret;
 	struct server_ctx server;
+	struct client_ctx client;
 	int end = 1;
 	
 	memset(&server, 0, sizeof(struct server_ctx));
@@ -294,16 +388,17 @@ int main(int argc, char* argv[]){
 				
 	//create the socket
 	server.server_sk = create_socket(server.address, server.port);
-	//connect with the client
-	server.to_client_sk = accept_client(server.server_sk);
-	
-	//bind the classic socket to ssl socket
-	server.connection = bind_socket_to_SSL(server.ssl_factory, server.to_client_sk);
-	if(server.connection == NULL){
-		server_cleanup(&server);
-		exit(-1);
-	}
 	while(end){
+		//connect with the client
+		server.to_client_sk = accept_client(server.server_sk);
+	
+		//bind the classic socket to ssl socket
+		server.connection = bind_socket_to_SSL(server.ssl_factory, server.to_client_sk);
+		if(server.connection == NULL){
+			server_cleanup(&server);
+			exit(-1);
+		}
+	
 		//accept new ssl connection	
 		ret = server_accept(server.connection);
 		if(ret != 1){
@@ -313,25 +408,37 @@ int main(int argc, char* argv[]){
 		/*---------------------------THE PROTOCOL-------------------------------*/
 		
 		
-		ret = authenticate_client(server.connection);
-		/*DEBUG*/
-		if(ret != -1)
-			printf("AUTHENTICATED\n");
+		ret = authenticate_client(server.connection, &client);
+		
+		if(ret != -1){
+			printf("Client %s authenticated, file name: %s\n", client.name, client.file_name);
+			send_code(server.connection, AUTH_OK);
+		}
 		
 		switch(ret){
-			case UPLOAD:					
+			case UPLOAD:
+				ret = upload(server.connection, &client);
+				/*
+				if(ret != 1)
+					send_code(server.connection, UPDATE_FAIL);
+				*/
+				disconnect(&server);								
 				break;
 			case DOWNLOAD:
+				ret = download(server.connection, &client);
+				/*
+				if(ret != 1)
+					send_code(server.connection, DOWNLOAD_FAIL);
+				*/
+				disconnect(&server);
 				break;
 			
 			/*Authentication failed or errors occur*/	
 			default:
 			case NO_AUTH:
-				/*DEBUG*/printf("NOT AUTHENTICATED\n");
-				send_error(server.connection, AUTH_ERR);
-				ret = disconnect(&server);
-				if(ret != 1)
-					end = 0;
+				printf("Client %s authentication failed\n", client.name);
+				send_code(server.connection, AUTH_FAIL);
+				disconnect(&server);
 				break;
 		}
 	}	
