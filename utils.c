@@ -102,7 +102,8 @@ unsigned char* sym_crypto(unsigned char* source, int source_size, char* name_fil
 	EVP_CIPHER_CTX_init(ctx);
 	EVP_EncryptInit(ctx, SYM_CIPHER, key, NULL);		//Cosa fare con l' IV?
 	
-	
+	//EVP_EncryptUpdate();
+	//EVP_EncryptFinal();
 	
 	
 	EVP_CIPHER_CTX_cleanup(ctx);
