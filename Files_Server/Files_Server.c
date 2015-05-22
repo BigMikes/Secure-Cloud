@@ -17,6 +17,7 @@
 #define UPLOAD 1
 #define DOWNLOAD 2
 #define HASH_DIM EVP_MD_size(EVP_sha256())
+#define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
 #define MAX_USR_NAME 20
 #define MAX_FILE_NAME 20
 #define AUTH_FAIL 0
@@ -307,8 +308,23 @@ void send_code(SSL* conn, uint8_t code){
 }
 
 
+/*
+* Function that splits the key in N pieces through the "Shamir secret-sharing" algorithm 
+* and sends each piece to each peer of Key Storage Service
+* Parameter "file_id" is the hash value (SHA256) used as unique id of file
+* Return -1 if error occurs
+*/
+int Secret_sharing(struct server_ctx* server, unsigned char* key, unsigned char* file_id){
+	return 1;
+}
 
-int upload(SSL* conn, struct client_ctx* client){
+
+/*
+* Update function receives the ciphertext and the key: <size_cipher> <Ek(File || H(File))> <AES256_key>
+* stores it in the client's directory and calls the splitting function 
+* Returns -1 if error occurs 
+*/
+int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	FILE* fd;
 	int dim;
 	int ret;
@@ -317,6 +333,8 @@ int upload(SSL* conn, struct client_ctx* client){
 	int last_round;			//number of bytes to transfer at last round 
 	int i;
 	char* filestore = malloc(strlen(FILE_STORE) + strlen(client->name) + strlen(client->file_name));
+	unsigned char* key;
+	unsigned char* file_id;
 	
 	
 	//fetch the client directory
@@ -341,14 +359,33 @@ int upload(SSL* conn, struct client_ctx* client){
 		if(ret != BUF_DIM){			//if there is a partial read, add the #bytes not readed at the last round 
              		last_round += BUF_DIM - ret;	//but we are over TCP so there should not be this kind of problem
 		}
-		ret = fwrite(buffer, sizeof(char), ret, fd);
-		//gestione write parziale----------------------------****************************
+		
+		fwrite(buffer, sizeof(char), ret, fd);	
 	}
-	//last round
+	//Last round
 	ret = secure_read(0, buffer, last_round, conn);
-	ret = fwrite(buffer, sizeof(char), ret, fd);
+	fwrite(buffer, sizeof(char), ret, fd);
 	
-	//then take the key, and handle it	
+	fclose(fd);
+	
+	//Reads the key, and split it
+	key = calloc(KEY_DIM, sizeof(char));
+	ret = secure_read(0, key, KEY_DIM, conn);
+	
+	//Computed the hash of file_name and username
+	strcpy(buffer, client->file_name);
+	strcat(buffer, client->name);
+	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , NULL);
+	
+	//Split the key
+	ret = Secret_sharing(server, key, file_id);
+	
+	memset(key, 0, KEY_DIM);
+	free(key);
+	free(file_id);
+	
+	return ret;
+		
 }
 
 int download(SSL* conn, struct client_ctx* client){
@@ -417,7 +454,7 @@ int main(int argc, char* argv[]){
 		
 		switch(ret){
 			case UPLOAD:
-				ret = upload(server.connection, &client);
+				ret = upload(&server, server.connection, &client);
 				/*
 				if(ret != 1)
 					send_code(server.connection, UPDATE_FAIL);
