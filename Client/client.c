@@ -40,8 +40,54 @@ void check_ret(int a, int b){
 		exit (EXIT_FAILURE);
 }
 
-
-
+void symmetric_encript_send(SSL* connection, char* file_name, char* key, int key_len){
+	//generic
+	int ret;
+	char* buffer[DIM_BUFFER];
+	FILE* fd;
+	
+	//encrypt
+	EVP_CIPHER_CTX* ctx;
+	unsigned char ciphertex[DIM_BUFFER];
+	int outlen;
+	
+	//hash
+	
+	///////////// i dati dovrebbero già essere tutti stati controllati giusto??
+	
+	fd = fopen(file_name, "r");
+	if(fd == NULL){
+		printf("Impossible to open %s file\n", name_file);
+		return NULL;
+	}
+	
+	//encrypt
+	ctx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));	
+	EVP_CIPHER_CTX_init(ctx);
+	EVP_EncryptInit(ctx, SYM_CIPHER, key, NULL);
+	
+	//hash
+	
+	
+	while( (ret = fread(buffer, sizeof(char), DIM_BUFFER, fd)) != 0 ){
+		//Encrypt Update
+		EVP_EncryptUpdate(ctx, ciphertex, &outlen, buffer, ret);
+		
+		//hash update
+		
+	}
+	
+	//hashfinal
+	
+	//encrypt update the hash
+	
+	//EVP_EncryptFinal();
+	EVP_EncryptFinal(ctx, );
+	
+	EVP_CIPHER_CTX_cleanup(ctx);
+	free(ctx);
+	fclose(fd);
+}
 //accetta in ingresso indirizzo ip e porta
 int main(int argc,char* argv[]){
 	int ret;
@@ -139,17 +185,17 @@ int main(int argc,char* argv[]){
 	}
 	
 	//primo messaggio user || pwd || cmd || name_file
-	ret = secure_write(0, dim_username, 4, connection); 
+	ret = secure_write(0, &dim_username, 4, connection); 
 	check_ret(ret, 4);
 	ret = secure_write(0, username, dim_username, connection);
 	check_ret(ret, dim_username);
-	ret = secure_write(0, dim_password, 4, connection); 
+	ret = secure_write(0, &dim_password, 4, connection); 
 	check_ret(ret, 4);
 	ret = secure_write(0, password, dim_password, connection); 
 	check_ret(ret, dim_password);
-	ret = secure_write(0, command, 1, connection); 
+	ret = secure_write(0, &command, 1, connection); 
 	check_ret(ret, 1);
-	ret = secure_write(0, dim_file_name, 4, connection); 
+	ret = secure_write(0, &dim_file_name, 4, connection); 
 	check_ret(ret, 4);
 	ret = secure_write(0, file_name, dim_file_name, connection); 
 	check_ret(ret, dim_file_name);
@@ -163,7 +209,26 @@ int main(int argc,char* argv[]){
 	}
 	
 	if(command == 1){
-		upload(connection, file_name, dim_file_name);
+		//symmetric cipher
+		char* key;
+		int key_len;
+		//EVP_CIPHER_CTX* ctx;
+		
+		//generate k
+		key_len = EVP_CIPHER_key_length(SYM_CIPHER);
+		key = (char*)malloc(key_len);
+		RAND_seed(key, key_len);
+		
+		//send Ek(file || H(file))
+		symmetric_encript_send(connection, file_name, key, key_len);
+		
+		//send k
+		ret = secure_write(0, key, key_len, connection); 
+		check_ret(ret, 4);
+	
+		//wait for response
+		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
+		check_ret(ret, sizeof(uint8_t));
 	}else{
 		//download();
 	}
