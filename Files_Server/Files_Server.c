@@ -9,22 +9,27 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
-/*---------CONSTANTS---------*/
+
+/*---------CONSTANTS--------------*/
 #define FILE_STORE "./File_store/"
 #define BUF_DIM 512
-#define NO_AUTH -1
-#define UPLOAD 1
-#define DOWNLOAD 2
 #define HASH_DIM EVP_MD_size(EVP_sha256())
 #define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
 #define MAX_USR_NAME 20
 #define MAX_FILE_NAME 20
+
+/*---------ERROR MESSAGES---------*/
 #define AUTH_FAIL 0
 #define AUTH_OK 1
+#define NO_FILE 2
 
-/*---------ERROR MESSAGES----*/
-#define AUTH_ERR "Authentication failed\0"
+/*---------COMMAND MESSAGES-------*/
+#define NO_AUTH -1
+#define UPLOAD 1
+#define DOWNLOAD 2
+
 
 //Server context
 struct server_ctx{
@@ -246,7 +251,7 @@ int authenticate_client(SSL* conn, struct client_ctx* client){
 	/*DEBUG*/
 	//printf("%s\n", username);
 	
-	strcpy(client->name, username);
+	memcpy(client->name, username, (dim < MAX_USR_NAME) ? dim : MAX_USR_NAME);
 	
 	//Reads the password	
 	pwd = read_formatted(conn, &dim_pwd);
@@ -287,7 +292,7 @@ int authenticate_client(SSL* conn, struct client_ctx* client){
 	/*DEBUG*/
 	//printf("%s\n", file_name); 
 	
-	strcpy(client->file_name, file_name);
+	memcpy(client->file_name, file_name, (dim < MAX_FILE_NAME) ? dim : MAX_FILE_NAME);
 	
 	free(file_name);
 	free(username);
@@ -320,6 +325,16 @@ int Secret_sharing(struct server_ctx* server, unsigned char* key, unsigned char*
 
 
 /*
+* Function that collects the key's pieces and reconstructs the key through the "Shamir secret-sharing" algorithm 
+* Parameter "file_id" is the hash value (SHA256) used as unique id of file
+* Return -1 if error occurs
+*/
+int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned char* file_id){
+	return 1;
+}
+
+
+/*
 * Update function receives the ciphertext and the key: <size_cipher> <Ek(File || H(File))> <AES256_key>
 * stores it in the client's directory and calls the splitting function 
 * Returns -1 if error occurs 
@@ -332,7 +347,7 @@ int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	int n_rounds;			//number of read-write cycles
 	int last_round;			//number of bytes to transfer at last round 
 	int i;
-	char* filestore = malloc(strlen(FILE_STORE) + strlen(client->name) + strlen(client->file_name));
+	char* filestore = malloc(strlen(FILE_STORE) + strlen(client->name) + strlen(client->file_name) + 1);
 	unsigned char* key;
 	unsigned char* file_id;
 	
@@ -343,8 +358,14 @@ int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	mkdir(filestore, S_IRWXU);
 	
 	//create/open the file
+	strcat(filestore, "/");
 	strcat(filestore, client->file_name);
-	fd = fopen(filestore, "r");
+	fd = fopen(filestore, "w");
+	
+	if(fd == NULL){
+		free(filestore);
+		return -1;
+	}
 	
 	//Reads the size of ciphertext
 	ret = secure_read(0, &dim, sizeof(int), conn);
@@ -383,13 +404,106 @@ int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	memset(key, 0, KEY_DIM);
 	free(key);
 	free(file_id);
+	free(filestore);
 	
 	return ret;
 		
 }
 
-int download(SSL* conn, struct client_ctx* client){
 
+int dim_of_file(char* namefile){
+	struct stat* buff = (struct stat*)malloc(sizeof(struct stat));
+	stat(namefile, buff);
+	return buff->st_size;
+}
+
+/*
+* Download function. 
+* It checks if the asked file exists, retrieves the key and then sends back the file
+* FORMAT OF MESSAGE: <dim><encrypted data>
+* Returns -1 if the file doesn't exist or if an error occurs 
+*/
+int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
+	FILE* fd;
+	int dim;
+	int ret;
+	unsigned char buffer[BUF_DIM];
+	int n_rounds;			//number of read-write cycles
+	int last_round;			//number of bytes to transfer at last round 
+	int i;
+	char* filestore = malloc(strlen(FILE_STORE) + strlen(client->name) + strlen(client->file_name) + 1);
+	unsigned char* key;
+	unsigned char* file_id;
+	
+	
+	//fetch the client directory
+	strcpy(filestore, FILE_STORE);
+	strcat(filestore, client->name);
+	
+	//create/open the file
+	strcat(filestore, "/");
+	strcat(filestore, client->file_name);
+	fd = fopen(filestore, "r");
+	
+	if(fd == NULL){
+		send_code(conn, NO_FILE);
+		free(filestore);
+		return -1;
+	}
+	
+	//Computed the hash of file_name and username
+	strcpy(buffer, client->file_name);
+	strcat(buffer, client->name);
+	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , NULL);
+	
+	//Retrieve the key
+	ret = Secret_retrieve(server, &key, file_id);
+	if(ret == -1){
+		send_code(conn, NO_FILE);
+		free(filestore);
+		fclose(fd);
+		return -1;
+	}
+	
+	//Read the dimension of file
+	dim = dim_of_file(filestore);
+	
+	//Send the dimention of file
+	ret = secure_write(0, &dim, sizeof(int), conn);
+	if(ret != sizeof(int)){
+		send_code(conn, NO_FILE);
+		free(filestore);
+		fclose(fd);
+		return -1;
+	}
+	
+	
+	n_rounds = dim / BUF_DIM;
+	last_round = dim % BUF_DIM;
+	
+	for(i = 0; i < n_rounds; i++){
+		ret = fread(buffer, sizeof(char), BUF_DIM, fd);
+		if(ret != BUF_DIM){			 
+             		last_round += BUF_DIM - ret;
+		}
+		
+		ret = secure_write(0, buffer, ret, conn);	
+	}
+	//Last round
+	ret = fread(buffer, sizeof(char), last_round, fd);	
+	ret = secure_write(0, buffer, ret, conn);
+	
+	fclose(fd);
+	
+	//Sends the key
+	ret = secure_write(0, key, KEY_DIM, conn);
+	
+	memset(key, 0, KEY_DIM);
+	
+	free(key);
+	free(file_id);
+	free(filestore);
+	return ret;
 }
 
 int main(int argc, char* argv[]){
@@ -462,7 +576,7 @@ int main(int argc, char* argv[]){
 				disconnect(&server);								
 				break;
 			case DOWNLOAD:
-				ret = download(server.connection, &client);
+				ret = download(&server, server.connection, &client);
 				/*
 				if(ret != 1)
 					send_code(server.connection, DOWNLOAD_FAIL);
