@@ -3,8 +3,8 @@ CLIENT
 - 
 
 FILE_SERVER
-- salvataggio file
-- splitting chiave
+- [FATTO]salvataggio file
+- [QUASI-FATTO]splitting chiave
 - inoltro parti di chiave
 - recupero parti di chiave
 
