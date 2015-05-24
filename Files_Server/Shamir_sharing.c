@@ -10,13 +10,27 @@ void print_bytes(unsigned char* buf, int len) {
 
 
 /*
+* Function that convert an integer to a BIGNUM
+*/
+BIGNUM* int2BN(int x, BIGNUM* ret){
+	int temp;
+	temp = htonl(x);
+	
+	if(ret == NULL)
+		return BN_bin2bn((unsigned char*) &temp, sizeof(temp), NULL);
+	else
+		BN_bin2bn((unsigned char*) &temp, sizeof(temp), ret);
+	return NULL;
+	
+}
+
+/*
 * Given the array of coefficients it computes f(x) = secret + (C1 * x) + .... + (Ck-1 * x^k-1) 
 * Returns the f(x), or NULL in case of errors
 */
 BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	int i;
 	int status;
-	int temp;
 	BN_CTX* ctx;
 	BIGNUM* BN_i;
 	BIGNUM* BN_x;
@@ -43,10 +57,9 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	BN_zero(ret);
 	BN_zero(BN_pow);
 	
-	//Converts the integer in big-endian format
-	temp = htonl(x);
+	
 	//Then converts it for doing BN math operation
-	BN_x = BN_bin2bn((unsigned char*) &temp, sizeof(temp), NULL);
+	BN_x = int2BN(x, NULL);
 	if(BN_x == NULL)
 		goto error;
 		
@@ -56,9 +69,8 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 		goto error;
 	
 	for(i = 1; i <= n_coeff; i++){
-		temp = htonl(i);
 		//Converts the index "i" for doing BN math operation
-		BN_bin2bn((unsigned char*) &temp, sizeof(temp), BN_i);
+		int2BN(i, BN_i);
 		
 		//Does the power of X
 		status = BN_exp(BN_pow, BN_x, BN_i, ctx);
@@ -77,7 +89,6 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	}
 	
 	//Cleans the data structures
-	//BN_CTX_end(ctx);
 	BN_CTX_free(ctx);
 	BN_clear_free(BN_x);
 	BN_clear_free(BN_pow);
@@ -99,7 +110,6 @@ error:
 		BN_clear_free(BN_i);
 	}
 	if(ctx != NULL){
-		BN_CTX_end(ctx);
 		BN_CTX_free(ctx);
 	}
 		
@@ -134,6 +144,11 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	if(BN_key == NULL)
 		return NULL;
 	
+	/*-----DEBUG-----*/
+	printf("Key = ");
+	BN_print_fp(stdout, BN_key);
+	printf("\n");
+	
 	//Seed the RNG
 	dim = 64;
 	seed_buf = malloc(dim);
@@ -148,12 +163,23 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 		//Only positive integers are permitted, thus if it is negative sets it positive 
 		if(BN_is_negative(coeff[i]))
 			BN_set_negative(coeff[i], 0);
+		
+		/*-----DEBUG-----*/
+		printf("Coeff %i = ", i + 1);
+		BN_print_fp(stdout, coeff[i]);
+		printf("\n");
 	}
 	
 	results = calloc(n_peers ,sizeof(struct secret_pieces));
 	
 	for(i = 1; i <= n_peers; i++){
 		BN_temp = compute_function(i, coeff, needed - 1, BN_key);
+		
+		/*-----DEBUG-----*/
+		printf("Results = ");
+		BN_print_fp(stdout, BN_temp);
+		printf("\n");
+		
 		results[i-1].x = i;
 		results[i-1].dim_piece = BN_num_bytes(BN_temp);
 		results[i-1].piece = calloc(results[i-1].dim_piece, sizeof(char));
@@ -169,9 +195,143 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 }
 
 
+void get_max_value(BIGNUM* bn, int n){
+	BIGNUM* one = int2BN(1, NULL);
+	BN_set_bit(bn, n);
+	BN_set_negative(one, 1);
+	BN_add(bn, bn, one);
+}
+
+
+/*
+* Given the N pieces of secret (x, f(x)) computes the point x0 of function (that is the original secret)
+* The dimention of the output buffer is *outlen 
+*/
+unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* outlen){
+	BIGNUM* secret;
+	BIGNUM* temp;
+	BIGNUM* BN_x_j;
+	BIGNUM* BN_x_i;
+	BIGNUM* rem;
+	BIGNUM* modulus;
+	int i = 0;
+	int j = 0;
+	BN_CTX* ctx;
+	unsigned char* ret;
+	
+	//Checks 
+	if(pieces == NULL || n_pieces <= 0 || outlen == NULL)
+		return NULL;
+	
+	//Init. BIGNUM context
+	ctx = BN_CTX_new();
+	BN_CTX_init(ctx);
+	
+	secret = BN_new();
+	if(secret == NULL)
+		goto error;
+	temp = BN_new();
+	if(temp == NULL)
+		goto error;
+	BN_x_j = BN_new();
+	if(BN_x_j == NULL)
+		goto error;
+	BN_x_i = BN_new();
+	if(BN_x_j == NULL)
+		goto error;
+	rem = BN_new();
+	if(rem == NULL)
+		goto error;
+	modulus = BN_new();
+	if(modulus == NULL)
+		goto error;
+	
+	//get_max_value(modulus, pieces[n_pieces - 1].dim_piece * 8);
+	
+	/*-----DEBUG-----*/
+	printf("Max val = ");
+	BN_print_fp(stdout, modulus);
+	printf("\n");
+	
+	BN_zero(secret);
+	BN_zero(modulus);
+	BN_zero(rem);
+	
+	//Compute the value of x0 through Lagrange Polynomial 
+	for(i = 0; i < n_pieces; i++){
+	
+		//Save f(x_i) in temp
+		BN_bin2bn(pieces[i].piece, pieces[i].dim_piece, temp);
+		//Save x_i in BN_x_i
+		int2BN(pieces[i].x, BN_x_i);
+		for(j = 0; j < n_pieces; j++){
+			if(i == j)
+				continue;
+			//Save x_j in BN_x_j
+			int2BN(pieces[j].x, BN_x_j);
+			//Set BN_x negative
+			BN_set_negative(BN_x_j, 1);
+			//Multiplication: [f(x_i) * -x_j]
+			BN_mul(temp, BN_x_j, temp, ctx);
+			//Subtraction: (x_i - x_j) and store in x_j
+			BN_add(BN_x_j, BN_x_i, BN_x_j);			//Just a sum, because we set BN_x_j negative
+			
+			//Division: [f(x_i) * -x_j] / (x_i - x_j)
+			BN_div(temp, rem, temp, BN_x_j, ctx);
+			
+			//BN_add(temp, rem, temp);
+		}
+		BN_add(secret, temp, secret);	
+	}
+	//BN_add(secret, modulus, secret);
+	
+	*outlen = BN_num_bytes(secret);
+	ret = calloc(*outlen, sizeof(char));
+	BN_bn2bin(secret, ret);
+	
+	//Cleanup
+	BN_clear_free(secret);
+	BN_clear_free(temp);
+	BN_clear_free(BN_x_i);
+	BN_clear_free(rem);
+	BN_clear_free(modulus);
+	BN_clear_free(BN_x_j);
+	BN_CTX_free(ctx);
+	
+	return ret;
+	
+error:
+	fprintf(stderr, "%s\n", ERR_error_string(ERR_get_error(), NULL));
+	if(secret != NULL)
+		BN_clear_free(secret);
+	if(temp != NULL){
+		BN_clear_free(temp);
+	}
+	if(BN_x_i != NULL){
+		BN_clear_free(BN_x_i);
+	}
+	if(BN_x_j != NULL){
+		BN_clear_free(BN_x_j);
+	}
+	if(rem != NULL){
+		BN_clear_free(rem);
+	}
+	if(modulus != NULL){
+		BN_clear_free(modulus);
+	}
+	if(ctx != NULL){
+		BN_CTX_free(ctx);
+	}
+		
+	return NULL;
+
+}
+
 
 int main(){		
-	struct secret_pieces* prova = secret_sharing("password", 4, 5, 2);
+	unsigned char* recovery;
+	char* secret = "password di prova\0";
+	struct secret_pieces* prova = secret_sharing(secret,strlen(secret) , 5, 4);
 	int i;
 	int total = (sizeof(prova) / sizeof(struct secret_pieces));
 	printf("Total: %i\n", total);
@@ -181,4 +341,9 @@ int main(){
 		printf("X = %i piece = ", prova[i].x);
 		print_bytes(prova[i].piece, prova[i].dim_piece);
 	}
+	
+	recovery = secret_recovery(prova, 5, &total);
+	
+	printf("Risultato ricostruito: %s\n", recovery);
+	
 }	
