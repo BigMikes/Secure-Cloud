@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 //costanti
 #define DIM_BUFFER 1024
@@ -49,37 +50,59 @@ void symmetric_encript_send(SSL* connection, char* file_name, char* key, int key
 	//encrypt
 	EVP_CIPHER_CTX* ctx;
 	unsigned char ciphertex[DIM_BUFFER];
-	int outlen;
+	int outlen = 0;
 	
 	//hash
+	EVP_MD_CTX sha_ctx;
+	unsigned int digest_size = 32;  // penso che sia definita da qualche parte 
+	unsigned char hash[digest_size];
 	
 	///////////// i dati dovrebbero già essere tutti stati controllati giusto??
 	
+	//open file
 	fd = fopen(file_name, "r");
 	if(fd == NULL){
 		printf("Impossible to open %s file\n", name_file);
 		return NULL;
 	}
 	
-	//encrypt
+	//encrypt initialization
 	ctx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));	
 	EVP_CIPHER_CTX_init(ctx);
 	EVP_EncryptInit(ctx, SYM_CIPHER, key, NULL);
 	
-	//hash
+	//hash initialization
+	EVP_MD_CTX_init(&sha_ctx);
+	EVP_DigestInit(&sha_ctx, EVP_sha256());
 	
+	//send dimension
+	struct stat st;
+	stat(file_name, &st); // file size = st.st_size
+	int tmp = ((st.st_size + digest_size)/ EVP_CIPHER_block_size(SYM_CIPHER)) + 1;
+	ret = secure_write(0, &tmp, 4, connection); 
+	check_ret(ret, 4);
 	
-	while( (ret = fread(buffer, sizeof(char), DIM_BUFFER, fd)) != 0 ){
+	//read until end of file
+	//for each read update encrypt and hash
+	while( (ret = fread(buffer, sizeof(char), DIM_BUFFER, fd)) >= 0 ){	//if -1 eof
 		//Encrypt Update
 		EVP_EncryptUpdate(ctx, ciphertex, &outlen, buffer, ret);
 		
 		//hash update
+		EVP_DigestUpdate(&sha_ctx, buffer, ret);
 		
+		//send encrypted data at this step
+		ret = secure_write(0, ciphertex, outlen, connection); 
+		check_ret(ret, outlen);
+		//reset outlen for the next step
+		outlen = 0;
 	}
 	
 	//hashfinal
+	EVP_DigestFinal(&sha_ctx, hash, &digest_size);
 	
 	//encrypt update the hash
+	EVP_EncryptUpdate(ctx, ciphertex, &outlen, digest_size, ret);
 	
 	//EVP_EncryptFinal();
 	EVP_EncryptFinal(ctx, );
