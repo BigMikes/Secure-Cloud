@@ -1,10 +1,10 @@
 CLIENT
 - generazione di un numero random per la cifratura
-- 
+- cifratura simmetrica
 
 FILE_SERVER
-- [FATTO]salvataggio file
-- [QUASI-FATTO]splitting chiave
+- salvataggio file
+- splitting chiave
 - inoltro parti di chiave
 - recupero parti di chiave
 
