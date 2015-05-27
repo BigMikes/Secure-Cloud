@@ -284,7 +284,9 @@ int main(int argc,char* argv[]){
 	if( dim_username == 0){
 		printf("Error");
 		exit(-1);
-	}
+	}	
+	dim_username = strlen(username);
+	printf("user: %s len: %i \n", username, dim_username);
 	
 	printf("\nPassword:\n");
 	dim_password = scanf("%s", password);
@@ -292,6 +294,8 @@ int main(int argc,char* argv[]){
 		printf("Error");
 		exit(-1);
 	}
+	dim_password = strlen(password);
+	printf("password: %s len: %i\n", password, dim_password);
 	
 	printf("\n Operation Upload or Download (u/d):\n");
 	scanf("%c", &support);
@@ -311,23 +315,23 @@ int main(int argc,char* argv[]){
 	
 	//primo messaggio user || pwd || cmd || name_file
 	//user_len
-	ret = secure_write(0, &dim_username, 4, connection); 
-	check_ret(ret, 4);
+	ret = secure_write(0, &dim_username, sizeof(int), connection); 
+	check_ret(ret, sizeof(int));
 	//user
 	ret = secure_write(0, username, dim_username, connection);
 	check_ret(ret, dim_username);
 	//pwd_len
-	ret = secure_write(0, &dim_password, 4, connection); 
-	check_ret(ret, 4);
+	ret = secure_write(0, &dim_password, sizeof(int), connection); 
+	check_ret(ret, sizeof(int));
 	//pwd
 	ret = secure_write(0, password, dim_password, connection); 
 	check_ret(ret, dim_password);
 	//cmd
-	ret = secure_write(0, &command, 1, connection); 
-	check_ret(ret, 1);
+	ret = secure_write(0, &command, sizeof(uint8_t), connection); 
+	check_ret(ret, sizeof(uint8_t));
 	//file_name_len
-	ret = secure_write(0, &dim_file_name, 4, connection); 
-	check_ret(ret, 4);
+	ret = secure_write(0, &dim_file_name, sizeof(int), connection); 
+	check_ret(ret, sizeof(int));
 	//file_name
 	ret = secure_write(0, file_name, dim_file_name, connection); 
 	check_ret(ret, dim_file_name);
