@@ -280,29 +280,19 @@ int main(int argc,char* argv[]){
 	
 	////body
 	printf("Username:\n");
-	ret = scanf("%s%*c",username);
-	if(ret == 0){
-		printf("error");
-		exit(EXIT_FAILURE);
-	}
+	ret = scanf("%s", username);
 	dim_username = strlen(username);
 	printf("user: %s len: %i \n", username, dim_username);
 	
 	printf("\nPassword:\n");
-	ret = scanf("%s%*c",password);
-	if(ret == 0){
-		printf("error");
-		exit(EXIT_FAILURE);
-	}
+	ret = scanf("%s", password);
 	dim_password = strlen(password);
 	printf("password: %s len: %i\n", password, dim_password);
 	
 	printf("\n Operation Upload or Download (u/d):\n");
-	ret = scanf("%c%*c",&support);
-	if(ret == 0){
-		printf("error");
-		exit(EXIT_FAILURE);
-	}
+	support = (char)getchar();
+	support = (char)getchar();
+	printf("Command: %c\n", support);
 	switch(support){
 		case 'u':
 		case 'U':
@@ -318,13 +308,9 @@ int main(int argc,char* argv[]){
 	}
 	
 	printf("\nFile name:\n");
-	ret = scanf("%s%*c",file_name);
-	if(ret == 0){
-		printf("error");
-		exit(EXIT_FAILURE);
-	}
+	ret = scanf("%s", file_name);
 	dim_file_name = strlen(file_name);
-	printf("password: %s len: %i\n", file_name, dim_file_name);
+	printf("File: %s len: %i\n", file_name, dim_file_name);
 	
 	//primo messaggio user || pwd || cmd || name_file
 	//user_len
@@ -352,7 +338,7 @@ int main(int argc,char* argv[]){
 	
 	if(command == CMD_UPLOAD){
 		//UPLOAD
-		printf("UPLOAD");
+
 		//wait for response
 		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
 		check_ret(ret, sizeof(uint8_t));
