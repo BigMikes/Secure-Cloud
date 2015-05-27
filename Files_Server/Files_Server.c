@@ -24,6 +24,8 @@
 #define AUTH_FAIL 0
 #define AUTH_OK 1
 #define NO_FILE 2
+#define UPDATE_FAIL 0
+#define UPDATE_OK 1
 
 /*---------COMMAND MESSAGES-------*/
 #define NO_AUTH -1
@@ -569,10 +571,11 @@ int main(int argc, char* argv[]){
 		switch(ret){
 			case UPLOAD:
 				ret = upload(&server, server.connection, &client);
-				/*
+				
 				if(ret != 1)
 					send_code(server.connection, UPDATE_FAIL);
-				*/
+				else
+					send_code(server.connection, UPDATE_OK);
 				disconnect(&server);								
 				break;
 			case DOWNLOAD:
