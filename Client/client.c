@@ -280,25 +280,17 @@ int main(int argc,char* argv[]){
 	
 	////body
 	printf("Username:\n");
-	dim_username = scanf("%s", username);
-	if( dim_username == 0){
-		printf("Error");
-		exit(-1);
-	}	
+	gets( username );
 	dim_username = strlen(username);
 	printf("user: %s len: %i \n", username, dim_username);
 	
 	printf("\nPassword:\n");
-	dim_password = scanf("%s", password);
-	if( dim_password == 0){
-		printf("Error");
-		exit(-1);
-	}
+	gets(password);
 	dim_password = strlen(password);
 	printf("password: %s len: %i\n", password, dim_password);
 	
 	printf("\n Operation Upload or Download (u/d):\n");
-	scanf("%c", &support);
+	gets(&support);
 	switch(support){
 		case 'u':
 		case 'U':
@@ -312,6 +304,11 @@ int main(int argc,char* argv[]){
 			printf("Error");
 			exit(-1);
 	}
+	
+	printf("\nFile name:\n");
+	gets(file_name);
+	dim_file_name = strlen(file_name);
+	printf("password: %s len: %i\n", file_name, dim_file_name);
 	
 	//primo messaggio user || pwd || cmd || name_file
 	//user_len
@@ -347,7 +344,7 @@ int main(int argc,char* argv[]){
 			printf("Connection refused.\n");
 			exit(-1);
 		}
-	
+		printf("print something");
 		//symmetric cipher
 		unsigned char* key;
 		int key_len;

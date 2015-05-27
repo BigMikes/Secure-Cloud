@@ -220,6 +220,7 @@ void* read_formatted(SSL* conn, int* size){
 	if(buffer == NULL)
 		return NULL;
 	ret = secure_read(0, buffer, dim, conn);
+	printf("readed string: %.*s len: %i\n", dim, buffer, dim );
 	if(ret != dim){
 		memset(buffer, 0, ret);
 		free(buffer);
@@ -311,7 +312,7 @@ int disconnect(struct server_ctx* server){
 
 
 void send_code(SSL* conn, uint8_t code){
-	secure_write(0, &code, sizeof(code), conn);
+	secure_write(0, &code, sizeof(uint8_t), conn);
 }
 
 
