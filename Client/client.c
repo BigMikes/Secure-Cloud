@@ -87,6 +87,8 @@ void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key
 	struct stat st;
 	stat(file_name, &st); // file size = st.st_size
 	int tmp = ((st.st_size + digest_size)/ EVP_CIPHER_block_size(SYM_CIPHER)) + 1;
+	tmp *= EVP_CIPHER_block_size(SYM_CIPHER);
+	printf("Dim = %i\n", tmp);
 	ret = secure_write(0, &tmp, sizeof(int), connection); 
 	check_ret(ret, sizeof(int));
 	
@@ -370,6 +372,7 @@ int main(int argc,char* argv[]){
 		key_len = EVP_CIPHER_key_length(SYM_CIPHER);
 		key = (unsigned char*)malloc(key_len);
 		RAND_seed(key, key_len);
+		RAND_bytes(key, key_len);
 		
 		//send Ek(file || H(file))
 		symmetric_encrypt_send(connection, file_name, key, key_len);
