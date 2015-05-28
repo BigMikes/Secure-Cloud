@@ -81,7 +81,7 @@ int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigne
 * It is an error if "source" and "name_file" are both equal to NULL.
 * Returns the ciphertext, NULL in case of errors
 */
-unsigned char* sym_crypto(unsigned char* source, int source_size, char* name_file, unsigned char* key){
+unsigned char* sym_crypto_file(unsigned char* source, int source_size, char* name_file, unsigned char* key){
 	EVP_CIPHER_CTX* ctx;
 	FILE* fd;
 	unsigned char* ciphertext;
@@ -109,3 +109,9 @@ unsigned char* sym_crypto(unsigned char* source, int source_size, char* name_fil
 	EVP_CIPHER_CTX_cleanup(ctx);
 	free(ctx);
 }
+
+unsigned char* sym_decrypto_file(){}
+
+unsigned char* asym_crypto(){}
+
+unsigned char* asym_decrypto(){}
