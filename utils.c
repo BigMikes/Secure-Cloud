@@ -110,8 +110,23 @@ unsigned char* sym_crypto_file(unsigned char* source, int source_size, char* nam
 	free(ctx);
 }
 
+
 unsigned char* sym_decrypto_file(){}
 
-unsigned char* asym_crypto(){}
 
-unsigned char* asym_decrypto(){}
+/*
+* RSA public cryptography function.
+* Encrypt 'in_len' bytes from 'plaintext' buffer with the public key contained in 'pub_key_file' 
+* Parameter 'outlen' is the size of output buffer 
+* It returns the ciphertext buffer or NULL if an error occurs.
+*/
+
+unsigned char* asym_crypto(unsigned char* plaintext, int in_len, int* out_len, char* pub_key_file){
+
+}
+
+
+unsigned char* asym_decrypt(unsigned char* ciphertext, int in_len, int* out_len, char* priv_key_file){
+
+}
+
