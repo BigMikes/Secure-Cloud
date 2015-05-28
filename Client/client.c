@@ -52,6 +52,7 @@ void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key
 	int ret;
 	unsigned char buffer[DIM_BUFFER];
 	FILE* fd;
+	int readed_byte;
 	
 	//encrypt
 	EVP_CIPHER_CTX* ctx;
@@ -86,23 +87,37 @@ void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key
 	struct stat st;
 	stat(file_name, &st); // file size = st.st_size
 	int tmp = ((st.st_size + digest_size)/ EVP_CIPHER_block_size(SYM_CIPHER)) + 1;
-	ret = secure_write(0, &tmp, 4, connection); 
-	check_ret(ret, 4);
+	ret = secure_write(0, &tmp, sizeof(int), connection); 
+	check_ret(ret, sizeof(int));
 	
 	//read until end of file
 	//for each read update encrypt and hash
-	while( (ret = fread(buffer, sizeof(char), DIM_BUFFER, fd)) >= 0 ){	//if -1 eof
+	while( 1 ){
+		
+		readed_byte = fread(buffer, sizeof(char), DIM_BUFFER, fd);
+		if(readed_byte == -1){
+			printf("Error");
+			exit(EXIT_FAILURE);
+		}
+		
+		if(readed_byte == 0){	//nel caso in cui la dimensione del file è multipla di dim_buffer
+			break;
+		}
+		
 		//Encrypt Update
-		EVP_EncryptUpdate(ctx, ciphertex, &outlen, buffer, ret);
+		EVP_EncryptUpdate(ctx, ciphertex, &outlen, buffer, readed_byte);
 		
 		//hash update
-		EVP_DigestUpdate(&sha_ctx, buffer, ret);
+		EVP_DigestUpdate(&sha_ctx, buffer, readed_byte);
 		
 		//send encrypted data at this step
+		printf("testo inviato: %.*s\n", outlen, ciphertex);
 		ret = secure_write(0, ciphertex, outlen, connection); 
 		check_ret(ret, outlen);
-		//reset outlen for the next step
-		outlen = 0;
+		
+		if(readed_byte != DIM_BUFFER){
+			break;
+		}
 	}
 	
 	//hashfinal; also clear ctx
@@ -346,7 +361,7 @@ int main(int argc,char* argv[]){
 			printf("Connection refused.\n");
 			exit(-1);
 		}
-		printf("print something");
+		printf("print something\n");
 		//symmetric cipher
 		unsigned char* key;
 		int key_len;
