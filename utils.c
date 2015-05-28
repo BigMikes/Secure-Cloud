@@ -114,19 +114,244 @@ unsigned char* sym_crypto_file(unsigned char* source, int source_size, char* nam
 unsigned char* sym_decrypto_file(){}
 
 
+
+EVP_PKEY* retrieve_pubkey(const char* file_name) {
+	FILE* file;
+	EVP_PKEY* pubkey;
+	file = fopen(file_name, "r");
+	if(file == NULL){
+		fprintf(stderr, "Error: cannot read PEM file '%s'\n", file_name);
+	        return NULL;
+	}
+
+	pubkey = PEM_read_PUBKEY(file, NULL, NULL, NULL);
+	fclose(file);
+	if(pubkey == NULL){
+		fprintf(stderr, "Error: PEM_read_PUBKEY returned NULL\n");
+		return NULL;
+	}
+
+	return pubkey;
+}
+
 /*
 * RSA public cryptography function.
 * Encrypt 'in_len' bytes from 'plaintext' buffer with the public key contained in 'pub_key_file' 
 * Parameter 'outlen' is the size of output buffer 
-* It returns the ciphertext buffer or NULL if an error occurs.
+* It returns the envelope which has to be sent to the receiver or NULL if an error occurs.
 */
-
 unsigned char* asym_crypto(unsigned char* plaintext, int in_len, int* out_len, char* pub_key_file){
-
+	EVP_PKEY* pubkey;
+	int ret;	
+	EVP_CIPHER_CTX* ctx;
+	unsigned char* encrypted_key;
+	int encrypted_key_len;
+	unsigned char* iv;
+	int iv_len;
+	unsigned char* ciphertext;
+	int cipher_len;
+	int app;
+	unsigned char* output;
+	int total_output_size = 0;
+		
+	if(plaintext == NULL || in_len < 0 || out_len == NULL || pub_key_file == NULL)
+		return NULL;
+	
+	//Reads the receiver's public key for its file
+	pubkey = retrieve_pubkey(pub_key_file);
+	
+	encrypted_key_len = EVP_PKEY_size(pubkey);
+	total_output_size += encrypted_key_len;
+	iv_len = EVP_CIPHER_iv_length(SYM_CIPHER);
+	total_output_size += iv_len;
+	//Allocation of encrypted symmetric key and initialization vector
+   	encrypted_key = malloc(encrypted_key_len);
+   	iv = malloc(iv_len);
+	//Seeding the RNG
+	RAND_seed(iv, 8);
+	
+	//Instantiate and initialize the context
+	ctx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));
+	EVP_CIPHER_CTX_init(ctx);
+	ret = EVP_SealInit(ctx, SYM_CIPHER, &encrypted_key, &encrypted_key_len, iv, &pubkey ,1);
+	if(ret == 0){
+		fprintf(stderr, "Error in SealInit\n");
+		goto error;
+	}
+	
+	//Encrypt the input buffer
+	cipher_len = in_len + EVP_CIPHER_block_size(SYM_CIPHER);
+	ciphertext = malloc(cipher_len);
+	cipher_len = 0;
+	
+	ret = EVP_SealUpdate(ctx, ciphertext, &app, plaintext, in_len);
+	cipher_len += app;
+	if(ret == 0){
+		fprintf(stderr, "Error in SealUpdate\n");
+		goto error;
+	}
+	ret = EVP_SealFinal(ctx, ciphertext + app, &app);
+	cipher_len += app;
+	if(ret == 0){
+		fprintf(stderr, "Error in SealFinal\n");
+		goto error;
+	}
+	total_output_size += cipher_len;
+	
+	//Concatenates the envelop in the outbuffer with format: <IV><Dim_Key><Ecrypt_KEY><Ciphertext>
+	total_output_size += sizeof(int);
+	output = malloc(total_output_size);
+	app = 0;
+	//<IV>
+	memcpy(output, iv, iv_len);
+	app += iv_len;
+	//<Dim_Key>
+	memcpy(output + app, &encrypted_key_len, sizeof(int));
+	app += sizeof(int);
+	//<Ecrypt_KEY>
+	memcpy(output + app, encrypted_key, encrypted_key_len);
+	app += encrypted_key_len;
+	//<Ciphertext>
+	memcpy(output + app, ciphertext, cipher_len);
+	app += encrypted_key_len;
+	
+	*out_len = total_output_size;
+	
+	//Cleanup
+	EVP_CIPHER_CTX_cleanup(ctx);
+   	free(ctx);
+	free(ciphertext);
+	free(pubkey);
+	free(iv);
+	
+	return output;
+	
+error:
+	if(ctx != NULL){
+		EVP_CIPHER_CTX_cleanup(ctx);
+   		free(ctx);
+	}
+	if(encrypted_key != NULL)
+		free(ciphertext);	
+	if(pubkey != NULL)
+		free(pubkey);
+	if(iv != NULL)		
+		free(iv);
+	if(ciphertext != NULL)
+		free(ciphertext);		
+	if(output != NULL)
+		free(output);
+	return NULL;
 }
 
 
-unsigned char* asym_decrypt(unsigned char* ciphertext, int in_len, int* out_len, char* priv_key_file){
+EVP_PKEY* read_priv_key(const char* file_name){
+	FILE* fp;
+	EVP_PKEY* priv_key;
+	
+	fp = fopen(file_name, "r");
+	if(fp == NULL){
+		fprintf(stderr, "Error: cannot read PEM file '%s'\n", file_name);
+	        return NULL;
+	}
+	priv_key = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
+	fclose(fp);
+	if(priv_key == NULL){
+		fprintf(stderr, "Error: PEM_read_PrivateKey returned NULL\n");
+		return NULL;
+	}
+	
+	return priv_key;
+}
 
+/*
+* RSA public decryption function.
+* Dencrypt 'in_len' bytes from 'envelope' buffer with the private key contained in 'priv_key_file' 
+* Parameter 'outlen' is the size of output buffer 
+* It returns the received plaintext or NULL if an error occurs.
+*/
+unsigned char* asym_decrypt(unsigned char* envelope, int in_len, int* out_len, char* priv_key_file){
+	EVP_PKEY* priv_key;
+	int ret;	
+	EVP_CIPHER_CTX* ctx;
+	unsigned char* encrypted_key;
+	int encrypted_key_len;
+	unsigned char* iv;
+	int iv_len;
+	unsigned char* ciphertext;
+	int ciphertext_len;
+	unsigned char* output;
+	int output_len;
+	int app;
+	
+		
+	if(ciphertext == NULL || in_len < 0 || out_len == NULL || priv_key_file == NULL)
+		return NULL;
+	
+	//Reads the receiver's public key for its file
+	priv_key = read_priv_key(priv_key_file);
+	
+	//Note: envelope format -> <IV><Dim_Key><Ecrypt_KEY><Ciphertext>
+	
+	//Set to the head the iv pointer
+	iv = envelope;
+	iv_len = EVP_CIPHER_iv_length(SYM_CIPHER);
+	
+	//Read from the envelop the encrypted_key_len
+	memcpy(&encrypted_key_len, envelope + iv_len, sizeof(int));
+	
+	//Set the encrypted_key pointer
+	encrypted_key = envelope + iv_len + sizeof(int);
+	
+	//Set the ciphertext pointer
+	ciphertext = envelope + iv_len + sizeof(int) + encrypted_key_len;
+	ciphertext_len = in_len - iv_len - sizeof(int) - encrypted_key_len;
+	
+	//Instantiate and initialize the context
+	ctx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));
+	EVP_CIPHER_CTX_init(ctx);
+	ret = EVP_OpenInit(ctx, SYM_CIPHER, encrypted_key, encrypted_key_len, iv, priv_key);
+	if(ret == 0)
+		goto error;
+	
+	//Decrypt the ciphertext
+	output_len = ciphertext_len;
+	output = malloc(output_len);
+	output_len = 0;
+	ret = EVP_OpenUpdate(ctx, output, &app, ciphertext, ciphertext_len);
+	if(ret == 0)
+		goto error;
+		
+	output_len += app;
+	ret = EVP_OpenFinal(ctx, output + app, &app);
+	if(ret == 0)
+		goto error;
+	output_len += app;
+	
+	*out_len = output_len;
+	
+	//Cleanup	
+	EVP_CIPHER_CTX_cleanup(ctx);
+   	free(ctx);
+	free(priv_key);
+	
+	return output;
+error:
+	if(ctx != NULL){
+		EVP_CIPHER_CTX_cleanup(ctx);
+   		free(ctx);
+	}
+	if(encrypted_key != NULL)
+		free(ciphertext);	
+	if(priv_key != NULL)
+		free(priv_key);
+	if(iv != NULL)		
+		free(iv);
+	if(ciphertext != NULL)
+		free(ciphertext);		
+	if(output != NULL)
+		free(output);
+	return NULL;
+	
 }
 
