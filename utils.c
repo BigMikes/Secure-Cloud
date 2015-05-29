@@ -64,19 +64,20 @@ int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigne
 	
 	/*Checks*/
 	if( (source == NULL && name_file == NULL) || (source != NULL && name_file != NULL) || (source != NULL && name_file == NULL && source_size <= 0) ){
-		return NULL;
+		return -1;
 	}
 		
 	/*Computes the hash function on source buffer and on file (if needed)*/
 	if(name_file != NULL){
-		computed_hash = do_hash(NULL, NULL, name_file);
+		computed_hash = do_hash(NULL, 0, name_file);
 	}
 	
 	if(source != NULL){
 		computed_hash = do_hash(source, source_size, NULL);
 	}
-	
-	computed_hash = do_hash(name_file);
+	//penso che basti anche semplicente fare 
+	//computed_hash = do_hash(source, source_size, name_file);
+	//senza bisogno degli if
 	
 	/*Checks if they are equals*/
 	ret = CRYPTO_memcmp(computed_hash, hash_val, EVP_MD_size(HASH_FUN));

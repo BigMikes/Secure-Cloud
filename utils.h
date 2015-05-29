@@ -8,7 +8,7 @@
 #define SYM_CIPHER EVP_aes_256_cbc()
 #define HASH_FUN EVP_sha256()
 
-unsigned char* do_hash(unsigned char* source, int source_size, char* name_file)
+unsigned char* do_hash(unsigned char* source, int source_size, char* name_file);
 
 int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigned char* hash_val);
 
