@@ -35,12 +35,12 @@ int main(){
 		RAND_bytes(key, key_len);
 	////
 	
-	hash_val = do_hash(name_file);
+	hash_val = do_hash(NULL, 0, name_file);
 	
 	printf("Hash Value = \n");
 	print_bytes(hash_val, EVP_MD_size(EVP_sha256()));
 	
-	ret = verify_hash(name_file, hash_val);
+	ret = verify_hash(NULL, 0, name_file, hash_val);
 	if(ret == 1)
 		printf("Integrity verified\n\n");
 	else
