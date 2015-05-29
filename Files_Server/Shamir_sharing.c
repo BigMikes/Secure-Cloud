@@ -1,5 +1,9 @@
 #include "Shamir_sharing.h"
 
+
+#define DIM_KEY 256
+
+
 void print_bytes(unsigned char* buf, int len) {
   int i = 0;
   for (i = 0; i < len - 1; i++)
@@ -24,6 +28,13 @@ BIGNUM* int2BN(int x, BIGNUM* ret){
 	
 }
 
+void get_max_value(BIGNUM* bn, int n){
+	BIGNUM* one = int2BN(1, NULL);
+	BN_set_bit(bn, n);
+	BN_set_negative(one, 1);
+	BN_add(bn, bn, one);
+}
+
 /*
 * Given the array of coefficients it computes f(x) = secret + (C1 * x) + .... + (Ck-1 * x^k-1) 
 * Returns the f(x), or NULL in case of errors
@@ -36,6 +47,7 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	BIGNUM* BN_x;
 	BIGNUM* BN_pow;
 	BIGNUM* ret;
+	BIGNUM* modulus;
 	
 	
 	ret = BN_new();
@@ -49,6 +61,11 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	BN_i = BN_new();
 	if(BN_i == NULL)
 		goto error;
+	modulus = BN_new();
+	if(modulus == NULL)
+		goto error;
+	
+	get_max_value(modulus, DIM_KEY);
 	
 	//Init. BIGNUM context
 	ctx = BN_CTX_new();
@@ -93,6 +110,7 @@ BIGNUM* compute_function(int x, BIGNUM** coeff, int n_coeff, BIGNUM* secret){
 	BN_clear_free(BN_x);
 	BN_clear_free(BN_pow);
 	BN_clear_free(BN_i);
+	BN_clear_free(modulus);
 	
 	return ret;
 	
@@ -108,6 +126,9 @@ error:
 	}
 	if(BN_i != NULL){
 		BN_clear_free(BN_i);
+	}
+	if(modulus != NULL){
+		BN_clear_free(modulus);
 	}
 	if(ctx != NULL){
 		BN_CTX_free(ctx);
@@ -144,10 +165,11 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	if(BN_key == NULL)
 		return NULL;
 	
-	/*-----DEBUG-----*/
+	/*-----DEBUG-----
 	printf("Key = ");
 	BN_print_fp(stdout, BN_key);
 	printf("\n");
+	*/
 	
 	//Seed the RNG
 	dim = 64;
@@ -164,10 +186,10 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 		if(BN_is_negative(coeff[i]))
 			BN_set_negative(coeff[i], 0);
 		
-		/*-----DEBUG-----*/
+		/*-----DEBUG-----
 		printf("Coeff %i = ", i + 1);
 		BN_print_fp(stdout, coeff[i]);
-		printf("\n");
+		printf("\n");*/
 	}
 	
 	results = calloc(n_peers ,sizeof(struct secret_pieces));
@@ -175,10 +197,10 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	for(i = 1; i <= n_peers; i++){
 		BN_temp = compute_function(i, coeff, needed - 1, BN_key);
 		
-		/*-----DEBUG-----*/
+		/*-----DEBUG-----
 		printf("Results = ");
 		BN_print_fp(stdout, BN_temp);
-		printf("\n");
+		printf("\n");*/
 		
 		results[i-1].x = i;
 		results[i-1].dim_piece = BN_num_bytes(BN_temp);
@@ -194,13 +216,6 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	return results;
 }
 
-
-void get_max_value(BIGNUM* bn, int n){
-	BIGNUM* one = int2BN(1, NULL);
-	BN_set_bit(bn, n);
-	BN_set_negative(one, 1);
-	BN_add(bn, bn, one);
-}
 
 
 /*
@@ -218,6 +233,7 @@ unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* 
 	int j = 0;
 	BN_CTX* ctx;
 	unsigned char* ret;
+	int flag = 0;
 	
 	//Checks 
 	if(pieces == NULL || n_pieces <= 0 || outlen == NULL)
@@ -246,7 +262,7 @@ unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* 
 	if(modulus == NULL)
 		goto error;
 	
-	//get_max_value(modulus, pieces[n_pieces - 1].dim_piece * 8);
+	get_max_value(modulus, DIM_KEY);
 	
 	/*-----DEBUG-----*/
 	printf("Max val = ");
@@ -279,15 +295,17 @@ unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* 
 			//Division: [f(x_i) * -x_j] / (x_i - x_j)
 			BN_div(temp, rem, temp, BN_x_j, ctx);
 			
-			//BN_add(temp, rem, temp);
+			if(BN_is_zero(rem) == 0)
+				flag = 1;
 		}
 		BN_add(secret, temp, secret);	
 	}
-	//BN_add(secret, modulus, secret);
 	
 	*outlen = BN_num_bytes(secret);
 	ret = calloc(*outlen, sizeof(char));
 	BN_bn2bin(secret, ret);
+	if(flag == 1)
+		//ret[*outlen - 2] += 1;
 	
 	//Cleanup
 	BN_clear_free(secret);
@@ -330,20 +348,33 @@ error:
 
 int main(){		
 	unsigned char* recovery;
-	char* secret = "password di prova\0";
-	struct secret_pieces* prova = secret_sharing(secret,strlen(secret) , 5, 4);
-	int i;
-	int total = (sizeof(prova) / sizeof(struct secret_pieces));
-	printf("Total: %i\n", total);
-	
-	for(i = 0; i < 5; i++){
-		printf("Iteration %i:\t", i);
-		printf("X = %i piece = ", prova[i].x);
-		print_bytes(prova[i].piece, prova[i].dim_piece);
+	struct secret_pieces* prova;
+	int i = 0;
+	int ret;
+	int total;
+	int redundancy = 5;
+	unsigned char* temp = malloc(32 + redundancy);
+	while(1){
+		RAND_bytes(temp, 32 + redundancy);
+		//print_bytes(temp, 32 + redundancy);
+		prova = secret_sharing(temp,32 + redundancy, 5, 4);
+		
+		/*
+		for(i = 0; i < 4; i++){
+			printf("Iteration %i:\t", i);
+			printf("X = %i piece = ", prova[i].x);
+			print_bytes(prova[i].piece, prova[i].dim_piece);
+		}
+		*/
+		
+		recovery = secret_recovery(prova, 5, &total);
+		//print_bytes(recovery, total);
+		//recovery[strlen(secret)-1] = '\0';
+		if(memcmp(temp, recovery, 32) != 0)
+			break;
+		i++;
 	}
-	
-	recovery = secret_recovery(prova, 5, &total);
-	
-	printf("Risultato ricostruito: %s\n", recovery);
+	printf("Risultato ricostruito correttamente: %i volte\n", i);
+	//printf("Risultato ricostruito: %s\n", recovery);
 	
 }	
