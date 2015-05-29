@@ -4,7 +4,7 @@
 * Computes the hash function SHA256 on "source" buffer, AND on the content of file "name_file" if it is non-NULL
 * Returns the hash value, NULL in case of errors
 */
-unsigned char* do_hash(char* name_file){
+unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	int i;
 	unsigned char data[1024];
 	unsigned int digest_size = EVP_MD_size(HASH_FUN);	
@@ -13,7 +13,7 @@ unsigned char* do_hash(char* name_file){
 	FILE* input_file;
 	EVP_MD_CTX sha_ctx;
 	
-	if(name_file == NULL){
+	if( (source == NULL && name_file == NULL) || (source != NULL && name_file != NULL) || (source != NULL && name_file == NULL && source_size <= 0) ){
 		return NULL;
 	}
 	
@@ -21,17 +21,25 @@ unsigned char* do_hash(char* name_file){
 	
 	EVP_DigestInit(&sha_ctx, HASH_FUN);
 	
-	input_file = fopen(name_file, "r");
-	if(input_file==NULL){
-		printf("Impossible to open file.\n");
-		return NULL;
+	//update sul file
+	if(name_file != NULL){
+		input_file = fopen(name_file, "r");
+		if(input_file==NULL){
+			printf("Impossible to open file.\n");
+			return NULL;
+		}
+		
+		while( ( read_bytes = fread(data, 1, 1024, input_file) ) != 0 ){
+			EVP_DigestUpdate(&sha_ctx, data, read_bytes);
+		}
+		
+		fclose(input_file);
 	}
 	
-	while( ( read_bytes = fread(data, 1, 1024, input_file) ) != 0 ){
-		EVP_DigestUpdate(&sha_ctx, data, read_bytes);
+	//update sul buffer
+	if(source != NULL){
+		EVP_DigestUpdate(&sha_ctx, source, source_size);
 	}
-	
-	fclose(input_file);
 	
 	EVP_DigestFinal(&sha_ctx, hash, &digest_size);
 	
@@ -50,15 +58,24 @@ unsigned char* do_hash(char* name_file){
 * then compares it with the content of "hash_val" buffer
 * Returns 1 if the integrity is verified, 0 otherwise, -1 in case of errors
 */
-int verify_hash(char* name_file ,unsigned char* hash_val){
+int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigned char* hash_val){
 	unsigned char* computed_hash;
 	int ret;
 	
 	/*Checks*/
-	if(hash_val == NULL || name_file == NULL)
-		return -1;
+	if( (source == NULL && name_file == NULL) || (source != NULL && name_file != NULL) || (source != NULL && name_file == NULL && source_size <= 0) ){
+		return NULL;
+	}
 		
 	/*Computes the hash function on source buffer and on file (if needed)*/
+	if(name_file != NULL){
+		computed_hash = do_hash(NULL, NULL, name_file);
+	}
+	
+	if(source != NULL){
+		computed_hash = do_hash(source, source_size, NULL);
+	}
+	
 	computed_hash = do_hash(name_file);
 	
 	/*Checks if they are equals*/
@@ -85,6 +102,7 @@ unsigned char* sym_crypto_file(char* name_file, unsigned char* hash, int hash_si
 	int res, msg_len, n;
 	int outlen, outlen_tot;
 	int ct_bufsize;
+	struct stat st;
 	int block_size = EVP_CIPHER_block_size(SYM_CIPHER);
 	
 	//printf("block_size: %i\n", block_size);
@@ -98,7 +116,6 @@ unsigned char* sym_crypto_file(char* name_file, unsigned char* hash, int hash_si
 		return NULL;
 	}
 	
-	struct stat st;
 	stat(name_file, &st); //file_size = st.st_size;
 	plaintext = (unsigned char*)malloc(st.st_size+hash_size);		//plaintext grande come il file più hash
 	
