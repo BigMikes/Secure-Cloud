@@ -43,7 +43,7 @@ void check_ret(int a, int b){
 		exit(EXIT_FAILURE);
 }
 
-void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key, int key_len){
+/*void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key, int key_len){
 	///////////////////////////
 	//dopo ogni update vale la pena di fare la check_ret(outlen, (int passato))  ???
 	///////////////////////////
@@ -141,9 +141,9 @@ void symmetric_encrypt_send(SSL* connection, char* file_name, unsigned char* key
 	//close
 	free(ctx);
 	fclose(fd);
-}
+}*/
 
-void symmetric_decrypt_receive(SSL* connection, char* file_name, unsigned char* key, int key_len){
+/*void symmetric_decrypt_receive(SSL* connection, char* file_name, unsigned char* key, int key_len){
 	//variabili
 	int ret, tmp;
 	int file_len;
@@ -229,7 +229,7 @@ void symmetric_decrypt_receive(SSL* connection, char* file_name, unsigned char* 
 	//close
 	free(ctx);
 	fclose(fd);
-}
+}*/
 
 //accetta in ingresso indirizzo ip, porta e certificato opzionale
 int main(int argc,char* argv[]){
@@ -374,8 +374,17 @@ int main(int argc,char* argv[]){
 		RAND_seed(key, key_len);
 		RAND_bytes(key, key_len);
 		
-		//send Ek(file || H(file))
-		symmetric_encrypt_send(connection, file_name, key, key_len);
+		//encrypt file
+		unsigned char* hash = do_hash(NULL, 0, file_name);
+		int cipher_file_len;
+		unsigned char* cipher_file = sym_crypto_file(file_name, hash, EVP_MD_size(HASH_FUN), key, &cipher_file_len);
+		
+		//send file size
+		ret = secure_write(0, &cipher_file_len, sizeof(int), connection); 
+		check_ret(ret, sizeof(int));
+		//send file
+		ret = secure_write(0, cipher_file, cipher_file_len, connection); 
+		check_ret(ret, cipher_file_len);
 		
 		//send k
 		ret = secure_write(0, key, key_len, connection); 
@@ -384,6 +393,12 @@ int main(int argc,char* argv[]){
 		//wait for response
 		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
 		check_ret(ret, sizeof(uint8_t));
+		
+		//clear 
+		memset(cipher_file, 0, cipher_file_len);
+		free(cipher_file);
+		memset(key, 0, key_len);
+		free(key);
 	} else {
 		//DOWNLOAD
 		
@@ -398,7 +413,45 @@ int main(int argc,char* argv[]){
 		check_ret(ret, key_len);
 		
 		//read Ek(file || H(file))
-		symmetric_decrypt_receive(connection, file_name, key, key_len);
+		//symmetric_decrypt_receive(connection, file_name, key, key_len);
+		
+		int cipher_len;
+		unsigned char* cipher_buff;
+		//read file size
+		ret = secure_read(0, &cipher_len, sizeof(int), connection);
+		check_ret(ret, sizeof(int));
+		
+		//read file
+		cipher_buff = malloc(cipher_len);
+		if(cipher_buff == NULL)
+			exit(-1);
+		ret = secure_read(0, cipher_buff, cipher_len, connection);
+		if(ret != cipher_len){
+			memset(cipher_buff, 0, ret);
+			free(cipher_buff);
+			exit(-1);
+		}
+		
+		//decrypt
+		int plain_len;
+		char* plain = sym_decrypt(cipher_buff, cipher_len, key, &plain_len);
+		
+		//write to file
+		FILE* output = fopen(file_name, "w");
+		if(output == NULL){
+			printf("Impossible to write file");
+			exit(-1);
+		}
+		ret = fwrite(plain, sizeof(char), plain_len, output);
+		check_ret(ret, plain_len);
+		fclose(output);
+		
+		//clear
+		memset(cipher_buff, 0, cipher_len);
+		free(cipher_buff);
+		free(plain);
+		memset(key, 0, key_len);
+		free(key);
 	}
 	
 	
