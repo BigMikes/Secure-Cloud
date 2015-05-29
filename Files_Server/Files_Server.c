@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/select.h>
 
 
 /*---------CONSTANTS--------------*/
@@ -19,6 +20,8 @@
 #define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
 #define MAX_USR_NAME 20
 #define MAX_FILE_NAME 20
+#define SHARING_KEY_PORT 4444
+#define MAX_CON 10
 
 /*---------ERROR MESSAGES---------*/
 #define AUTH_FAIL 0
@@ -35,8 +38,13 @@
 
 //Server context
 struct server_ctx{
-	int server_sk;
-	int to_client_sk;
+	int server_sk;				//Listening socket for client connection
+	int to_client_sk;			//Socket used for client communications
+	int sharing_sk;				//Listening socket for key-server connection
+	int key_server[MAX_CON];		//Array of sockets for key-server communications
+	unsigned char* session_key[MAX_CON];	//Array of buffer for key-server session keys 
+	int index;				//Index for the arrays
+	
 	SSL_CTX* ssl_factory;
 	SSL* connection;
 	char* certif_path;
@@ -112,6 +120,7 @@ int accept_client(int server_sk){
 
 //funzione che libera tutte le strutture dati del server
 void server_cleanup(struct server_ctx* server){
+	int i;
 	/*
 	if(server->certif_path != NULL)
 		free(server->certif_path);
@@ -128,8 +137,18 @@ void server_cleanup(struct server_ctx* server){
 		close(server->to_client_sk);
 	if(server->server_sk != 0)
 		close(server->server_sk);
+	if(server->sharing_sk != 0)
+		close(server->sharing_sk);
 	if(server->ssl_factory != NULL)
 		SSL_CTX_free(server->ssl_factory);
+	for(i = 0; i < MAX_CON; i++){
+		if(server->key_server[i] != 0)
+			close(server->key_server[i]);
+		if(server->session_key[i] != NULL){
+			memset(server->session_key[i], 0, KEY_DIM);
+			free(server->session_key[i]);
+		}
+	}
 }
 
 /*
@@ -220,7 +239,7 @@ void* read_formatted(SSL* conn, int* size){
 	if(buffer == NULL)
 		return NULL;
 	ret = secure_read(0, buffer, dim, conn);
-	printf("readed string: %.*s len: %i\n", dim, buffer, dim );
+	printf("readed string: %.*s len: %i\n", dim, (char*)buffer, dim);
 	if(ret != dim){
 		memset(buffer, 0, ret);
 		free(buffer);
@@ -255,6 +274,7 @@ int authenticate_client(SSL* conn, struct client_ctx* client){
 	//printf("%s\n", username);
 	
 	memcpy(client->name, username, (dim < MAX_USR_NAME) ? dim : MAX_USR_NAME);
+	client->name[(dim < MAX_USR_NAME) ? dim : MAX_USR_NAME] = '\0';
 	
 	//Reads the password	
 	pwd = read_formatted(conn, &dim_pwd);
@@ -296,7 +316,7 @@ int authenticate_client(SSL* conn, struct client_ctx* client){
 	//printf("%s\n", file_name); 
 	
 	memcpy(client->file_name, file_name, (dim < MAX_FILE_NAME) ? dim : MAX_FILE_NAME);
-	
+	client->file_name[(dim < MAX_FILE_NAME) ? dim : MAX_FILE_NAME] = '\0';
 	free(file_name);
 	free(username);
 	return (int)cmd;
@@ -509,6 +529,59 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	return ret;
 }
 
+
+/*
+* This function performs the select operation for handle the client connections 
+* and key server connections, simultaneously
+* It returns 1 if there is a key-server connection, 0 if there is a client connection, -1 if an error occurs
+*/
+int do_select(struct server_ctx* server){
+	fd_set selectfds;
+    	int max_fds = 0;
+    	int ret;
+	
+	FD_ZERO(&selectfds);
+
+	FD_SET(server->server_sk, &selectfds);
+	FD_SET(server->sharing_sk, &selectfds);
+	max_fds = (server->server_sk > server->sharing_sk) ? server->server_sk : server->sharing_sk;
+
+        ret = select(FD_SETSIZE, &selectfds, NULL, NULL, NULL);
+        
+        if(ret < 0)
+        	return -1;
+        if(FD_ISSET(server->sharing_sk, &selectfds))		//Gives more priority to key_server connections
+        	return 1;
+        else if(FD_ISSET(server->server_sk, &selectfds))
+        	return 0;
+        else 
+        	return -1;
+}
+
+/*
+* Given the connect request from the key_server, it runs the key establishment protocol and open the connection 
+* with that server
+*/
+void connect_key_server(struct server_ctx* server){
+	int sock_temp;
+	
+	//Accept connection from the key-server
+	sock_temp = accept_client(server->sharing_sk);
+	//Add the socket to the server context
+	if(server->index == MAX_CON){
+		close(sock_temp);
+		return;
+	}
+	server->key_server[server->index] = sock_temp;
+	server->index++;
+	
+	printf("Key Server %i connected, start the key establishment protocol\n", server->index-1);
+	
+	/*---------KEY ESTABLISHMENT PROTOCOL---------*/
+	
+	return;
+}
+
 int main(int argc, char* argv[]){
 	int ret;
 	struct server_ctx server;
@@ -540,63 +613,79 @@ int main(int argc, char* argv[]){
 	if(server.ssl_factory == NULL)
 		exit(-1);
 				
-	//create the socket
+	//create the client-listening socket 
 	server.server_sk = create_socket(server.address, server.port);
+	
+	//create the key-sharing-server socket
+	server.sharing_sk = create_socket(server.address, SHARING_KEY_PORT);
+	
 	while(end){
-		//connect with the client
-		server.to_client_sk = accept_client(server.server_sk);
-	
-		//bind the classic socket to ssl socket
-		server.connection = bind_socket_to_SSL(server.ssl_factory, server.to_client_sk);
-		if(server.connection == NULL){
+		
+		//Wait for client connections or key-server connection
+		ret = do_select(&server);
+		if(ret == -1){
+			printf("Error in select function\n");
 			server_cleanup(&server);
 			exit(-1);
 		}
-	
-		//accept new ssl connection	
-		ret = server_accept(server.connection);
-		if(ret != 1){
-			server_cleanup(&server);
-			exit(-1);
-		}
-		/*---------------------------THE PROTOCOL-------------------------------*/
-		
-		
-		ret = authenticate_client(server.connection, &client);
-		
-		if(ret != -1){
-			printf("Client %s authenticated, file name: %s\n", client.name, client.file_name);
-			send_code(server.connection, AUTH_OK);
-		}
-		
-		switch(ret){
-			case UPLOAD:
-				ret = upload(&server, server.connection, &client);
-				
-				if(ret != 1)
-					send_code(server.connection, UPDATE_FAIL);
-				else
-					send_code(server.connection, UPDATE_OK);
-				disconnect(&server);								
-				break;
-			case DOWNLOAD:
-				ret = download(&server, server.connection, &client);
-				/*
-				if(ret != 1)
-					send_code(server.connection, DOWNLOAD_FAIL);
-				*/
-				disconnect(&server);
-				break;
+		else if(ret == 1)
+			connect_key_server(&server);
+		else{			
+			//connect with the client
+			server.to_client_sk = accept_client(server.server_sk);
+			printf("Client conneted, authentication in course\n");
 			
-			/*Authentication failed or errors occur*/	
-			default:
-			case NO_AUTH:
-				printf("Client %s authentication failed\n", client.name);
-				send_code(server.connection, AUTH_FAIL);
-				disconnect(&server);
-				break;
-		}
-	}	
+			//bind the classic socket to ssl socket
+			server.connection = bind_socket_to_SSL(server.ssl_factory, server.to_client_sk);
+			if(server.connection == NULL){
+				server_cleanup(&server);
+				exit(-1);
+			}
+	
+			//accept new ssl connection	
+			ret = server_accept(server.connection);
+			if(ret != 1){
+				server_cleanup(&server);
+				exit(-1);
+			}
+			/*---------------------------THE PROTOCOL with client-------------------------------*/
+		
+		
+			ret = authenticate_client(server.connection, &client);
+		
+			if(ret != -1){
+				printf("Client %s authenticated, file name: %s\n", client.name, client.file_name);
+				send_code(server.connection, AUTH_OK);
+			}
+		
+			switch(ret){
+				case UPLOAD:
+					ret = upload(&server, server.connection, &client);
+				
+					if(ret != 1)
+						send_code(server.connection, UPDATE_FAIL);
+					else
+						send_code(server.connection, UPDATE_OK);
+					disconnect(&server);								
+					break;
+				case DOWNLOAD:
+					ret = download(&server, server.connection, &client);
+					/*
+					if(ret != 1)
+						send_code(server.connection, DOWNLOAD_FAIL);
+					*/
+					disconnect(&server);
+					break;
+			
+				/*Authentication failed or errors occur*/	
+				default:
+				case NO_AUTH:
+					printf("Client %s authentication failed\n", client.name);
+					send_code(server.connection, AUTH_FAIL);
+					disconnect(&server);
+			}//End switch
+		}//End if
+	}//End while
 	
 	server_cleanup(&server);
 	exit(0);
