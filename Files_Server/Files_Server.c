@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/select.h>
-
+#include "Shamir_sharing.h"
 
 /*---------CONSTANTS--------------*/
 #define FILE_STORE "./File_store/"
@@ -342,7 +342,80 @@ void send_code(SSL* conn, uint8_t code){
 * Parameter "file_id" is the hash value (SHA256) used as unique id of file
 * Return -1 if error occurs
 */
-int Secret_sharing(struct server_ctx* server, unsigned char* key, unsigned char* file_id){
+int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned char* file_id){
+	struct secret_pieces* shares;
+	int n_peers;
+	int needed;
+	int i;
+	unsigned char* ciphertext;
+	unsigned char* message;
+	unsigned char* plaintext;
+	int dim_plaintext = 0;
+	int dim_ciphertext = 0;
+	int ret;
+	
+	if(server == NULL || key == NULL || file_id == NULL)
+		return -1;
+	
+	n_peers = server->index;
+	if(n_peers == 0){
+		printf("Key Storage Service is down! No peers are connected.\n");
+		return -1;
+	}
+	//Only the half pieces are needed to reconstruct the key
+	needed = (n_peers == 1) ? n_peers : n_peers/2;
+	
+	//Split the key in 'n_peers' pieces
+	shares = secret_sharing(key, KEY_DIM, n_peers, needed);
+	
+	//Now send the shares. One to every connected peers.
+	for(i = 0; i < n_peers; i++){
+		//Serialize the struct <X><Dim_shares><Shares>
+		dim_plaintext = 2 * sizeof(int) + shares[i].dim_piece;
+		plaintext = malloc(dim_plaintext);
+		memcpy(plaintext, &shares[i].x, sizeof(int));
+		memcpy(plaintext + sizeof(int), &shares[i].dim_piece, sizeof(int));
+		memcpy(plaintext + (2*sizeof(int)), shares[i].piece, shares[i].dim_piece);
+		//Encrypt the serialized structure.		
+		ciphertext = sym_crypt(plaintext, dim_plaintext, server->session_key[i], &dim_ciphertext);
+		if(ciphertext == NULL){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			free(plaintext);
+			return -1;
+		}
+		//Send the envelope = <File_id><dim_ciphertext><Ek(share)>
+		ret = write(server->key_server[i], file_id, HASH_DIM);
+		if(ret != HASH_DIM){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			free(ciphertext);
+			free(plaintext);
+			return -1;
+		}
+		ret = write(server->key_server[i], &dim_ciphertext, sizeof(int));
+		if(ret != sizeof(int)){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			free(ciphertext);
+			free(plaintext);
+			return -1;
+		}
+		ret = write(server->key_server[i], ciphertext, dim_ciphertext);
+		if(ret != dim_ciphertext){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			free(ciphertext);
+			free(plaintext);
+			return -1;
+		}
+		free(ciphertext);
+		free(plaintext);
+	}
+	memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+	free(shares);
+	free(ciphertext);
+	free(plaintext);
 	return 1;
 }
 
@@ -422,7 +495,8 @@ int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , NULL);
 	
 	//Split the key
-	ret = Secret_sharing(server, key, file_id);
+	ret = Secret_splitting(server, key, file_id);
+	
 	
 	memset(key, 0, KEY_DIM);
 	free(key);
@@ -529,6 +603,16 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	return ret;
 }
 
+/*
+* Function that establish a session key with a key-server 
+* It returns the session key, or NULL if an error occurs
+*/
+unsigned char* key_estab_protocol(int socket){
+	unsigned char* session_key;
+	unsigned char* buffer;
+	return NULL;
+}
+
 
 /*
 * This function performs the select operation for handle the client connections 
@@ -578,6 +662,7 @@ void connect_key_server(struct server_ctx* server){
 	printf("Key Server %i connected, start the key establishment protocol\n", server->index-1);
 	
 	/*---------KEY ESTABLISHMENT PROTOCOL---------*/
+	server->session_key[server->index-1] = key_estab_protocol(sock_temp);
 	
 	return;
 }
@@ -628,8 +713,10 @@ int main(int argc, char* argv[]){
 			server_cleanup(&server);
 			exit(-1);
 		}
-		else if(ret == 1)
+		else if(ret == 1){
+			printf("Key-Server conneted, handshake in course\n");
 			connect_key_server(&server);
+		}
 		else{			
 			//connect with the client
 			server.to_client_sk = accept_client(server.server_sk);

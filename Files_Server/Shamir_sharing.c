@@ -153,15 +153,25 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	int i; 
 	int ret;
 	struct secret_pieces* results;
+	unsigned char* temp;
+	int redundancy = 5;
 	
 	//Checks
 	if(key == NULL || key_size <= 0 || needed <= 0 || n_peers < needed){
 		return NULL;
 	}
 	
+	//Seed the RNG
+	dim = 64;
+	seed_buf = malloc(dim);
+	RAND_seed(seed_buf, dim);
+	
+	temp = malloc(key_size + redundancy);
+	RAND_bytes(temp, key_size + redundancy);
+	memcpy(temp, key, key_size);
 	
 	//Converts the key in a BIGNUM
-	BN_key = BN_bin2bn(key, key_size, NULL);
+	BN_key = BN_bin2bn(temp, key_size + redundancy, NULL);
 	if(BN_key == NULL)
 		return NULL;
 	
@@ -171,10 +181,6 @@ struct secret_pieces* secret_sharing(unsigned char* key, int key_size, int n_pee
 	printf("\n");
 	*/
 	
-	//Seed the RNG
-	dim = 64;
-	seed_buf = malloc(dim);
-	RAND_seed(seed_buf, dim);
 	
 	//Generates the "needed" - 1 coefficients
 	coeff = calloc(needed - 1, sizeof(BIGNUM * ));
@@ -262,12 +268,12 @@ unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* 
 	if(modulus == NULL)
 		goto error;
 	
-	get_max_value(modulus, DIM_KEY);
+	//get_max_value(modulus, DIM_KEY);
 	
-	/*-----DEBUG-----*/
+	/*-----DEBUG-----
 	printf("Max val = ");
 	BN_print_fp(stdout, modulus);
-	printf("\n");
+	printf("\n");*/
 	
 	BN_zero(secret);
 	BN_zero(modulus);
@@ -295,8 +301,6 @@ unsigned char* secret_recovery(struct secret_pieces* pieces, int n_pieces, int* 
 			//Division: [f(x_i) * -x_j] / (x_i - x_j)
 			BN_div(temp, rem, temp, BN_x_j, ctx);
 			
-			if(BN_is_zero(rem) == 0)
-				flag = 1;
 		}
 		BN_add(secret, temp, secret);	
 	}
@@ -345,30 +349,30 @@ error:
 
 }
 
-
+/*-------------------TEST------------------------
 int main(){		
 	unsigned char* recovery;
 	struct secret_pieces* prova;
 	int i = 0;
 	int ret;
 	int total;
-	int redundancy = 5;
+	int redundancy = 0;
 	unsigned char* temp = malloc(32 + redundancy);
 	while(1){
 		RAND_bytes(temp, 32 + redundancy);
-		//print_bytes(temp, 32 + redundancy);
+		print_bytes(temp, 32 + redundancy);
 		prova = secret_sharing(temp,32 + redundancy, 5, 4);
 		
-		/*
+		
 		for(i = 0; i < 4; i++){
 			printf("Iteration %i:\t", i);
 			printf("X = %i piece = ", prova[i].x);
 			print_bytes(prova[i].piece, prova[i].dim_piece);
 		}
-		*/
+		
 		
 		recovery = secret_recovery(prova, 5, &total);
-		//print_bytes(recovery, total);
+		print_bytes(recovery, total);
 		//recovery[strlen(secret)-1] = '\0';
 		if(memcmp(temp, recovery, 32) != 0)
 			break;
@@ -377,4 +381,4 @@ int main(){
 	printf("Risultato ricostruito correttamente: %i volte\n", i);
 	//printf("Risultato ricostruito: %s\n", recovery);
 	
-}	
+}*/	
