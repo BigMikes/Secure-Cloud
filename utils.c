@@ -167,7 +167,7 @@ unsigned char* sym_crypto_file(char* name_file, unsigned char* hash, int hash_si
 /*
  * 
  */
-unsigned char* sym_crypt(char* buf, int buf_size, unsigned char* key, int* cipher_len){
+unsigned char* sym_crypt(void* buf, int buf_size, unsigned char* key, int* cipher_len){
 	EVP_CIPHER_CTX* ctx;
 	FILE* fd;
 	unsigned char* ciphertext;

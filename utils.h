@@ -14,7 +14,7 @@ int verify_hash(unsigned char* source, int source_size, char* name_file ,unsigne
 
 unsigned char* sym_crypto_file(char* name_file, unsigned char* hash, int hash_size, unsigned char* key, int* cipher_len);
 
-unsigned char* sym_crypt(char* buf, int buf_size, unsigned char* key, int* cipher_len);
+unsigned char* sym_crypt(void* buf, int buf_size, unsigned char* key, int* cipher_len);
 
 char* sym_decrypt(unsigned char* cipher, int cipher_len, unsigned char* key, int* output_len);
 
