@@ -15,7 +15,7 @@
 
 /*---------CONSTANTS--------------*/
 #define FILE_STORE "./File_store/"
-#define BUF_DIM 512
+#define BUF_DIM 1024
 #define HASH_DIM EVP_MD_size(EVP_sha256())
 #define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
 #define MAX_USR_NAME 20
@@ -34,6 +34,8 @@
 #define NO_AUTH -1
 #define UPLOAD 1
 #define DOWNLOAD 2
+#define UP_KEY 1
+#define DOWN_KEY 2
 
 
 //Server context
@@ -91,6 +93,14 @@ int create_socket(char* address, int port){
 		printf("Error in socket bind");
 		exit(-1);	
 	}
+	
+	//mi pongo in ascolto sulla porta
+	ret = listen(lst_sk, SOMAXCONN);
+	if(ret == -1){
+		printf("Error in listen");
+		exit(-1);	
+	}
+	
 	return lst_sk;
 }
 
@@ -99,15 +109,8 @@ int create_socket(char* address, int port){
 int accept_client(int server_sk){
 	int client_addr_len;
 	int com_sk;
-	int ret;
 	struct sockaddr client_addr;
 	memset(&client_addr, 0, sizeof(client_addr));
-	//mi pongo in ascolto sulla porta
-	ret = listen(server_sk, SOMAXCONN);
-	if(ret == -1){
-		printf("Error in listen");
-		exit(-1);	
-	}
 	//attendo nuove connessioni da parte dei client
 	//client_addr_len = sizeof(client_addr);
 	com_sk = accept(server_sk, (struct sockaddr*)&client_addr, &client_addr_len);
@@ -349,10 +352,13 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 	int i;
 	unsigned char* ciphertext;
 	unsigned char* message;
-	unsigned char* plaintext;
+	unsigned char plaintext[BUF_DIM];
+	unsigned char* hash;
 	int dim_plaintext = 0;
 	int dim_ciphertext = 0;
 	int ret;
+	int temp = 0;
+	uint8_t cmd = UP_KEY;
 	
 	if(server == NULL || key == NULL || file_id == NULL)
 		return -1;
@@ -370,35 +376,39 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 	
 	//Now send the shares. One to every connected peers.
 	for(i = 0; i < n_peers; i++){
-		//Serialize the struct <X><Dim_shares><Shares>
-		dim_plaintext = 2 * sizeof(int) + shares[i].dim_piece;
-		plaintext = malloc(dim_plaintext);
-		memcpy(plaintext, &shares[i].x, sizeof(int));
-		memcpy(plaintext + sizeof(int), &shares[i].dim_piece, sizeof(int));
-		memcpy(plaintext + (2*sizeof(int)), shares[i].piece, shares[i].dim_piece);
-		//Encrypt the serialized structure.		
+		temp = 0;
+		//Build the message <CMD> <hash_file_id> <X> <Dim_share> <Share> <Hash(payload)>
+		dim_plaintext = 2*sizeof(int) + shares[i].dim_piece + 2*HASH_DIM + sizeof(uint8_t);
+		memcpy(plaintext, &cmd, sizeof(uint8_t));			//<CMD>
+		temp += sizeof(uint8_t);
+		memcpy(plaintext + temp, file_id, HASH_DIM);	 		//<Hash_file_id>
+		temp += HASH_DIM;
+		memcpy(plaintext + temp, &shares[i].x, sizeof(int));		//<X>
+		temp += sizeof(int);
+		memcpy(plaintext + temp, &shares[i].dim_piece, sizeof(int));	//<Dim_share>
+		temp += sizeof(int);
+		memcpy(plaintext + temp, shares[i].piece, shares[i].dim_piece);	//<Share>
+		temp += shares[i].dim_piece;
+		hash = do_hash(plaintext, temp, NULL);				//Computes the hash of the payload
+		memcpy(plaintext + temp, hash, HASH_DIM);			//Concatenates the hash with the message
+		temp += HASH_DIM;
+		
+		
+		//Encrypt the message with i-th session key		
 		ciphertext = sym_crypt(plaintext, dim_plaintext, server->session_key[i], &dim_ciphertext);
 		if(ciphertext == NULL){
 			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 			free(shares);
-			free(plaintext);
+			free(hash);
 			return -1;
 		}
-		//Send the envelope = <File_id><dim_ciphertext><Ek(share)>
-		ret = write(server->key_server[i], file_id, HASH_DIM);
-		if(ret != HASH_DIM){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
-			free(ciphertext);
-			free(plaintext);
-			return -1;
-		}
+		//Send the envelope = <dim_ciphertext><ciphertext>
 		ret = write(server->key_server[i], &dim_ciphertext, sizeof(int));
 		if(ret != sizeof(int)){
 			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 			free(shares);
 			free(ciphertext);
-			free(plaintext);
+			free(hash);
 			return -1;
 		}
 		ret = write(server->key_server[i], ciphertext, dim_ciphertext);
@@ -406,16 +416,14 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 			free(shares);
 			free(ciphertext);
-			free(plaintext);
+			free(hash);
 			return -1;
 		}
+		free(hash);
 		free(ciphertext);
-		free(plaintext);
 	}
 	memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 	free(shares);
-	free(ciphertext);
-	free(plaintext);
 	return 1;
 }
 
@@ -662,8 +670,8 @@ void connect_key_server(struct server_ctx* server){
 	printf("Key Server %i connected, start the key establishment protocol\n", server->index-1);
 	
 	/*---------KEY ESTABLISHMENT PROTOCOL---------*/
-	server->session_key[server->index-1] = key_estab_protocol(sock_temp);
-	
+	//server->session_key[server->index-1] = key_estab_protocol(sock_temp);
+	server->session_key[server->index-1] = calloc(KEY_DIM, sizeof(char));
 	return;
 }
 
