@@ -13,3 +13,7 @@ FILE_SERVER
 FILE_PASSWORD
 - salvataggio parti di chiavi
 - inoltro parti di chiavi
+
+KEY_SERVER
+- controllare le free dei dati sensibili e spostarle in modo che eliminino i dati subito
+	dopo che sono stati utilizzati.
