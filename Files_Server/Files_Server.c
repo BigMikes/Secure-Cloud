@@ -63,6 +63,15 @@ struct client_ctx{
 	char file_name[MAX_FILE_NAME];
 };
 
+void print_bytes_debug(unsigned char* buf, int len) {
+  int i = 0;
+  for (i = 0; i < len - 1; i++)
+    printf("%02X:", buf[i]);
+  printf("%02X", buf[len - 1]);
+  printf("\n");
+}
+
+
 void help(){
 	char* options_msg = "Usage: Files_server <ip address> <port number>\n\
 	[Optionals:] <certificate path> <private key path>\n";
@@ -624,7 +633,7 @@ char* pub_key_path(char* base, int x){
 	sprintf(temp, "%i", x);
 	
 	ret = malloc(strlen(base) + strlen(temp) + strlen(end) + 1);
-	strcat(ret, base);
+	strcpy(ret, base);
 	strcat(ret, temp);
 	strcat(ret, end);
 	free(temp);
@@ -637,7 +646,7 @@ char* pub_key_path(char* base, int x){
 */
 unsigned char* key_estab_protocol(int socket){
 	unsigned char* session_key;
-	unsigned char* buffer;
+	unsigned char buffer[BUF_DIM];
 	unsigned char* plaintext;
 	unsigned char* nonce;
 	unsigned char* ciphertext; 
@@ -653,15 +662,17 @@ unsigned char* key_estab_protocol(int socket){
 	ret = read(socket, &dim, sizeof(int));
 	if(ret != sizeof(int))
 		goto error;
-	buffer = malloc(dim);
 	ret = read(socket, buffer, dim);
 	if(ret != dim)
 		goto error;
 	//Decrypt it
 	plaintext = asym_decrypt(buffer, dim, &outlen, "./Certs/fileserver_private.pem");
-	free(buffer);
 	if(outlen != EXPECTED_DIM[0])
 		goto error;
+		
+	/*DEBUG*/
+	printf("-------->Received M1: %i, %i, %i\n", (int)*plaintext, (int)*(plaintext + 4), (int)*(plaintext + 8));
+	
 	//Checks if the first field "S" is equal to Server ID
 	memcpy(&ret, plaintext, sizeof(int));
 	if(ret != SERVER_ID)
@@ -671,7 +682,6 @@ unsigned char* key_estab_protocol(int socket){
 	public_key = pub_key_path(PUB_KEY_PATH, receiver_id);
 	
 	/*----------- Send M2 S->P {S, P, Np, Ns, K}kp+ ---------*/
-	buffer = malloc(outlen + 4 + KEY_DIM);
 	memcpy(buffer, plaintext, outlen);
 	//Clear the 'plaintext' buffer
 	memset(plaintext, 0, outlen);
@@ -692,6 +702,10 @@ unsigned char* key_estab_protocol(int socket){
 		goto error;	
 	memcpy(buffer + outlen, nonce, 4);
 	memcpy(buffer + outlen + 4, session_key, KEY_DIM);
+	
+	/*DEBUG*/
+	printf("-------->Sent M2: %i, %i, %i, %i\n", (int)*buffer, (int)*(buffer + 4), (int)*(buffer + 8), (int)*(buffer + 12));
+	
 	//Encrypt the message with the receiver's public key
 	printf("%s\n", public_key);
 	ciphertext = asym_crypto(buffer, outlen + 4 + KEY_DIM, &outlen, public_key);
@@ -705,20 +719,21 @@ unsigned char* key_estab_protocol(int socket){
 	if(ret != outlen)
 		goto error;
 	//Clear the buffer
-	memset(buffer, 0, outlen + 4 + KEY_DIM);
-	free(buffer);
 	
 	/*----------- Read M3 P->S {Ns}k ------------*/
 	ret = read(socket, &dim, sizeof(int));
 	if(ret != sizeof(int))
 		goto error;
-	buffer = malloc(dim);
 	ret = read(socket, buffer, dim);
 	if(ret != dim)
 		goto error;
 	//Decrypt the ciphertext with K
 	plaintext = sym_decrypt(buffer, dim, session_key, &outlen);
-	ret = CRYPTO_memcmp(buffer, nonce, 4);
+	
+	/*DEBUG*/
+	printf("-------->Received M3: %i\n", (int)*plaintext);
+	
+	ret = CRYPTO_memcmp(plaintext, nonce, 4);
 	if(ret != 0)
 		goto error;
 	/*----------- If we are here, everything was fine, thus clean all buffers and return the session key ------*/
@@ -727,9 +742,12 @@ unsigned char* key_estab_protocol(int socket){
 	free(plaintext);
 	memset(nonce, 0, 4);
 	free(nonce);
-	free(buffer);
+	memset(buffer, 0, BUF_DIM);
 	free(ciphertext);
 	free(public_key);
+	/*DEBUG*/
+	printf("Established key: ");
+	print_bytes_debug(session_key, KEY_DIM);
 	
 	return session_key;
 error:
@@ -737,9 +755,9 @@ error:
 		memset(session_key, 0, KEY_DIM);
 		free(session_key);
 	}
-	if(buffer != NULL){
-		free(buffer);
-	}
+	
+	memset(buffer, 0, BUF_DIM);
+	
 	if(plaintext != NULL){
 		free(plaintext);
 	}
@@ -809,7 +827,8 @@ void connect_key_server(struct server_ctx* server){
 		server->index--;
 		printf("Key establishment protocol result: FAILED\n");
 	}
-	printf("Key establishment protocol result: OK\n");
+	else
+		printf("Key establishment protocol result: OK\n");
 	return;
 }
 
