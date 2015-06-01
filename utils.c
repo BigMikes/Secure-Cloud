@@ -310,7 +310,8 @@ unsigned char* asym_crypto(unsigned char* plaintext, int in_len, int* out_len, c
 	
 	//Reads the receiver's public key for its file
 	pubkey = retrieve_pubkey(pub_key_file);
-	
+	if(pubkey == NULL)
+		return NULL;
 	encrypted_key_len = EVP_PKEY_size(pubkey);
 	total_output_size += encrypted_key_len;
 	iv_len = EVP_CIPHER_iv_length(SYM_CIPHER);

@@ -14,6 +14,7 @@
 #include "Shamir_sharing.h"
 
 /*---------CONSTANTS--------------*/
+#define PUB_KEY_PATH "./Certs/keyserver_pubkey"
 #define FILE_STORE "./File_store/"
 #define BUF_DIM 1024
 #define HASH_DIM EVP_MD_size(EVP_sha256())
@@ -22,6 +23,7 @@
 #define MAX_FILE_NAME 20
 #define SHARING_KEY_PORT 4444
 #define MAX_CON 10
+#define SERVER_ID 1
 
 /*---------ERROR MESSAGES---------*/
 #define AUTH_FAIL 0
@@ -115,7 +117,7 @@ int accept_client(int server_sk){
 	//client_addr_len = sizeof(client_addr);
 	com_sk = accept(server_sk, (struct sockaddr*)&client_addr, &client_addr_len);
 	if(com_sk == -1){
-		printf("Error in accept");
+		printf("Error in accept\n");
 		exit(-1);	
 	}
 	return com_sk;
@@ -611,6 +613,24 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	return ret;
 }
 
+
+char* pub_key_path(char* base, int x){
+	int dim = (x > 9)? 2 : 1;
+	char* temp = malloc(dim);
+	char* end = ".pem";
+	char* ret;
+	
+	
+	sprintf(temp, "%i", x);
+	
+	ret = malloc(strlen(base) + strlen(temp) + strlen(end) + 1);
+	strcat(ret, base);
+	strcat(ret, temp);
+	strcat(ret, end);
+	free(temp);
+	return ret;
+}
+
 /*
 * Function that establish a session key with a key-server 
 * It returns the session key, or NULL if an error occurs
@@ -618,7 +638,119 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 unsigned char* key_estab_protocol(int socket){
 	unsigned char* session_key;
 	unsigned char* buffer;
-	return NULL;
+	unsigned char* plaintext;
+	unsigned char* nonce;
+	unsigned char* ciphertext; 
+	char* public_key;
+	int EXPECTED_DIM[] = {12, 48, 4};		//Expected size of messages 
+	int ret;
+	int dim;
+	int outlen;
+	int receiver_id;
+	
+	
+	/*---------- Read M1 P->S {S, P, Np}ks+ --------------*/
+	ret = read(socket, &dim, sizeof(int));
+	if(ret != sizeof(int))
+		goto error;
+	buffer = malloc(dim);
+	ret = read(socket, buffer, dim);
+	if(ret != dim)
+		goto error;
+	//Decrypt it
+	plaintext = asym_decrypt(buffer, dim, &outlen, "./Certs/fileserver_prvkey.pem");
+	free(buffer);
+	if(outlen != EXPECTED_DIM[0])
+		goto error;
+	//Checks if the first field "S" is equal to Server ID
+	memcpy(&ret, plaintext, sizeof(int));
+	if(ret != SERVER_ID)
+		goto error;
+	memcpy(&receiver_id, plaintext + sizeof(int), sizeof(int));
+	//Create the public key path associated to the key server
+	public_key = pub_key_path(PUB_KEY_PATH, receiver_id);
+	
+	/*----------- Send M2 S->P {S, P, Np, Ns, K}kp+ ---------*/
+	buffer = malloc(outlen + 4 + KEY_DIM);
+	memcpy(buffer, plaintext, outlen);
+	//Clear the 'plaintext' buffer
+	memset(plaintext, 0, outlen);
+	free(plaintext);
+	//Generate the nonce of 4 byte
+	nonce = malloc(4);
+	if(nonce == NULL)
+		goto error;
+	ret = RAND_bytes(nonce, 4);
+	if(ret != 1)
+		goto error;
+	//Generate the AES256 key
+	session_key = malloc(KEY_DIM);
+	if(session_key == NULL)
+		goto error;
+	ret = RAND_bytes(session_key, KEY_DIM);
+	if(ret != 1)
+		goto error;	
+	memcpy(buffer + outlen, nonce, 4);
+	memcpy(buffer + outlen + 4, session_key, KEY_DIM);
+	//Encrypt the message with the receiver's public key
+	printf("%s\n", public_key);
+	ciphertext = asym_crypto(buffer, outlen + 4 + KEY_DIM, &outlen, public_key);
+	if(ciphertext == NULL)
+		goto error;
+	//Send the encrypted message and its dimension
+	ret = write(socket, &outlen, sizeof(int));
+	if(ret != sizeof(int))
+		goto error;
+	ret = write(socket, ciphertext, outlen);
+	if(ret != outlen)
+		goto error;
+	//Clear the buffer
+	memset(buffer, 0, outlen + 4 + KEY_DIM);
+	free(buffer);
+	
+	/*----------- Read M3 P->S {Ns}k ------------*/
+	ret = read(socket, &dim, sizeof(int));
+	if(ret != sizeof(int))
+		goto error;
+	buffer = malloc(dim);
+	ret = read(socket, buffer, dim);
+	if(ret != dim)
+		goto error;
+	//Decrypt the ciphertext with K
+	plaintext = sym_decrypt(buffer, dim, session_key, &outlen);
+	ret = CRYPTO_memcmp(buffer, nonce, 4);
+	if(ret != 0)
+		goto error;
+	/*----------- If we are here, everything was fine, thus clean all buffers and return the session key ------*/
+	
+	memset(plaintext, 0, outlen);
+	free(plaintext);
+	memset(nonce, 0, 4);
+	free(nonce);
+	free(buffer);
+	free(ciphertext);
+	free(public_key);
+	
+	return session_key;
+error:
+	if(session_key != NULL){
+		memset(session_key, 0, KEY_DIM);
+		free(session_key);
+	}
+	if(buffer != NULL){
+		free(buffer);
+	}
+	if(plaintext != NULL){
+		free(plaintext);
+	}
+	if(nonce != NULL){
+		memset(nonce, 0, 4);
+		free(nonce);
+	}
+	if(ciphertext != NULL){
+		free(ciphertext);
+	}
+	return NULL;	
 }
 
 
@@ -670,8 +802,14 @@ void connect_key_server(struct server_ctx* server){
 	printf("Key Server %i connected, start the key establishment protocol\n", server->index-1);
 	
 	/*---------KEY ESTABLISHMENT PROTOCOL---------*/
-	//server->session_key[server->index-1] = key_estab_protocol(sock_temp);
-	server->session_key[server->index-1] = calloc(KEY_DIM, sizeof(char));
+	server->session_key[server->index-1] = key_estab_protocol(sock_temp);
+	if(server->session_key[server->index-1] == NULL){		//The handshake didn't go fine
+		close(server->key_server[server->index]);
+		server->key_server[server->index] = 0;
+		server->index--;
+		printf("Key establishment protocol result: FAILED\n");
+	}
+	printf("Key establishment protocol result: OK\n");
 	return;
 }
 
