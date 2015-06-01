@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
 		private_key = strdup(argv[5]);
 	}
 	else{
-		file_server_pub_key = "./Certs/fileserver_pubkey.pem";
+		file_server_pub_key = "./Certs/fileserver_public.pem";
 		private_key = "./Certs/keyserver_privkey.pem";
 	}
 	

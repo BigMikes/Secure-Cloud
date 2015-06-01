@@ -658,7 +658,7 @@ unsigned char* key_estab_protocol(int socket){
 	if(ret != dim)
 		goto error;
 	//Decrypt it
-	plaintext = asym_decrypt(buffer, dim, &outlen, "./Certs/fileserver_prvkey.pem");
+	plaintext = asym_decrypt(buffer, dim, &outlen, "./Certs/fileserver_private.pem");
 	free(buffer);
 	if(outlen != EXPECTED_DIM[0])
 		goto error;
