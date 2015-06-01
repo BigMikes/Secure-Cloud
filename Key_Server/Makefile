@@ -14,4 +14,4 @@ Key_server: Key_server.o ../security_ssl.o ../utils.o
 
 clean:
 	rm *.o
-	rm client
+	rm key_server
