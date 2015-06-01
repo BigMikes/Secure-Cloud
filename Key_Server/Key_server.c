@@ -328,6 +328,7 @@ int main(int argc, char* argv[]) {
 			enc_msg = sym_crypt(msg, msg_len, shared_key, &enc_msg_len);
 			
 			//send
+			send_msg(socketF, &enc_msg_len, sizeof(int));
 			send_msg(socketF, enc_msg, enc_msg_len);
 			
 			//free
