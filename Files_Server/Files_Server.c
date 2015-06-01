@@ -686,6 +686,7 @@ unsigned char* key_estab_protocol(int socket){
 	//Clear the 'plaintext' buffer
 	memset(plaintext, 0, outlen);
 	free(plaintext);
+	plaintext = NULL;
 	//Generate the nonce of 4 byte
 	nonce = malloc(4);
 	if(nonce == NULL)
