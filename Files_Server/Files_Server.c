@@ -14,30 +14,31 @@
 #include "Shamir_sharing.h"
 
 /*---------CONSTANTS--------------*/
-#define PUB_KEY_PATH "./Certs/keyserver_pubkey"
-#define FILE_STORE "./File_store/"
-#define BUF_DIM 1024
-#define HASH_DIM EVP_MD_size(EVP_sha256())
-#define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
-#define MAX_USR_NAME 20
-#define MAX_FILE_NAME 20
-#define SHARING_KEY_PORT 5555
-#define MAX_CON 10
-#define SERVER_ID 1
+#define PUB_KEY_PATH 		"./Certs/keyserver_pubkey"
+#define FILE_STORE 		"./File_store/"
+#define BUF_DIM 		1024
+#define HASH_DIM 		EVP_MD_size(EVP_sha256())
+#define KEY_DIM 		EVP_CIPHER_key_length(EVP_aes_256_cbc())
+#define MAX_USR_NAME 		20
+#define MAX_FILE_NAME 		20
+#define SHARING_KEY_PORT 	5555
+#define MAX_CON 		10
+#define SERVER_ID 		1
 
 /*---------ERROR MESSAGES---------*/
-#define AUTH_FAIL 0
-#define AUTH_OK 1
-#define NO_FILE 2
-#define UPDATE_FAIL 0
-#define UPDATE_OK 1
+#define AUTH_FAIL 	0
+#define AUTH_OK 	1
+#define NO_FILE 	2
+#define UPDATE_FAIL 	0
+#define UPDATE_OK 	1
+#define NO_SECRET	3
 
 /*---------COMMAND MESSAGES-------*/
-#define NO_AUTH -1
-#define UPLOAD 1
-#define DOWNLOAD 2
-#define UP_KEY 1
-#define DOWN_KEY 2
+#define NO_AUTH 	-1
+#define UPLOAD 		1
+#define DOWNLOAD 	2
+#define UP_KEY 		1
+#define DOWN_KEY	2
 
 
 //Server context
@@ -468,8 +469,111 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 * Return -1 if error occurs
 */
 int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned char* file_id){
+	int ret;
+	uint8_t cmd = DOWN_KEY;
+	uint8_t no_secret = NO_SECRET;
+	int i;
+	int n_peers;
+	int dim_ciphertext;
+	unsigned char* ciphertext;
+	int dim_plaintext;
+	unsigned char* plaintext;
+	struct secret_pieces* shares;
+	int n_response = 0;
 	
+	//Checks
+	if(server == NULL || key == NULL || file_id == NULL)
+		return -1;
 	
+	n_peers = server->index;
+	if(n_peers == 0){
+		printf("Key Storage Service is down! No peers are connected.\n");
+		return -1;
+	}
+	shares = malloc(sizeof(struct secret_pieces) * n_peers);
+	
+	for(i = 0; i < n_peers; i++){
+		//Encrypt the command
+		ciphertext = sym_crypt(&cmd, sizeof(cmd), server->session_key[i], &dim_ciphertext);
+		if(ciphertext == NULL){
+			continue;
+		}
+		//Send <dim><Ek(CMD)>
+		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
+		free(ciphertext);
+		if(ret == -1){
+			continue;
+		}
+		
+		
+		//Encrypt the <file_id>
+		ciphertext = sym_crypt(file_id, HASH_DIM, server->session_key[i], &dim_ciphertext);
+		if(ciphertext == NULL){
+			continue;
+		}
+		//Send <dim><Ek(file_id)>
+		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
+		free(ciphertext);
+		if(ret == -1){
+			continue;
+		}
+		
+		//Read the response
+		ret = read(server->key_server[i], &dim_ciphertext, sizeof(int));
+		if(ret != sizeof(int)){
+			continue;
+		}		
+		ciphertext = malloc(dim_ciphertext);
+		ret = read(server->key_server[i], ciphertext, dim_ciphertext);
+		if(ret != dim_ciphertext){
+			memset(plaintext, 0, dim_plaintext);
+			free(plaintext);
+			free(ciphertext);
+			continue;
+		}
+		//Decrypt the message
+		plaintext = sym_decrypt(ciphertext, dim_ciphertext, server->session_key[i], &dim_plaintext);
+		free(ciphertext);
+		//Check the type of the message
+		if(dim_plaintext == sizeof(uint8_t) && *plaintext == no_secret){
+			free(plaintext);
+			continue;
+		}
+		//Check	the integrity of the content
+		ret = verify_hash(plaintext, dim_plaintext - HASH_DIM, NULL, plaintext + (dim_plaintext - HASH_DIM));
+		if(ret != 1){
+			memset(plaintext, 0, dim_plaintext);
+			free(plaintext);
+			continue;
+		}
+		//NOTE: message format <file_id> <X> <Dim_share> <Share>
+		//Check if the file_id is the same
+		ret = CRYPTO_memcmp(plaintext, file_id, HASH_DIM);
+		if(ret != 0){
+			memset(plaintext, 0, dim_plaintext);
+			free(plaintext);
+			continue;
+		}
+		//If we are here the piece of secret is related to the file that we are looking for, and its integrity is fine
+		//Thus, copy in the secret_pieces struct the piece of secret 
+		memcpy(&shares[n_response].x, plaintext + HASH_DIM, sizeof(int));
+		memcpy(&shares[n_response].dim_piece, plaintext + HASH_DIM + sizeof(int), sizeof(int));
+		memcpy(shares[n_response].piece, plaintext + HASH_DIM + sizeof(int) + sizeof(int), shares[n_response].dim_piece);
+		
+		n_response++;
+		memset(plaintext, 0, dim_plaintext);
+		free(plaintext);	
+	}
+	
+	if(n_response == 0){
+		free(shares);
+		return -1;
+	}
+	
+	*key = secret_recovery(shares, n_response, &dim_ciphertext);
+	
+	memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+	free(shares);
 	return 1;
 }
 
@@ -536,7 +640,7 @@ int upload(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	//Computed the hash of file_name and username
 	strcpy(buffer, client->file_name);
 	strcat(buffer, client->name);
-	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , NULL);
+	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , filestore);
 	
 	//Split the key
 	ret = Secret_splitting(server, key, file_id);
