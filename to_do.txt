@@ -17,3 +17,58 @@ FILE_PASSWORD
 KEY_SERVER
 - controllare le free dei dati sensibili e spostarle in modo che eliminino i dati subito
 	dopo che sono stati utilizzati.
+-- da inserire opzionalmente
+/*
+unsigned char* recv_simm_cyper_msg(int sock, int* msg_len, unsigned char* simm_key){
+	int enc_msg_len;
+	unsigned char* enc_msg;
+	unsigned char* messaggio;
+	int messaggio_len;
+	
+	//verifica dei parametri
+	if(simm_key == NULL){
+		exit(-1);
+	}
+	
+	//read command length
+	recv_msg(sock, &enc_msg_len, sizeof(int));
+	
+	//allocate space for encrypted msg
+	enc_msg = (unsigned char*)malloc(enc_msg_len);
+	
+	//read message
+	recv_msg(sock, enc_msg, enc_msg_len);
+	
+	//decrypt message
+	messaggio = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, simm_key, &messaggio_len);
+	if(messaggio == null){}
+	
+	free(enc_msg);
+	printf("messaggio_len: %i\n", messaggio_len);
+	//return
+	*msg_len = messaggio_len;
+	return messaggio;
+}
+
+void send_simm_cyper_msg(int sock, void* msg, int len, unsigned char* simm_key){
+	unsigned char* enc_msg;
+	int enc_msg_len;
+	
+	//verifica dei parametri
+	if((msg == NULL) || (simm_key == NULL)){
+		exit(-1);
+	}
+	
+	enc_msg = sym_crypt(msg, len, simm_key, &enc_msg_len);
+			
+	//send len
+	send_msg(sock, &enc_msg_len, sizeof(int));
+	
+	//send msg
+	send_msg(sock, enc_msg, enc_msg_len);
+	
+	//free
+	free(enc_msg);
+	free(msg);
+}
+*/
