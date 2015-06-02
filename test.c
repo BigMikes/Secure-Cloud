@@ -55,7 +55,7 @@ int main(){
 	printf("test_cipher_len: %i\n\n\n", cipher_len);
 	
 	//string encrypt
-	char* a = "ciao come va";
+	char* a = "a";
 	int l = strlen(a);
 	printf("stringa: %s\t\t lunga: %i\n", a, l);
 	cipher = sym_crypt(a, l, key, &cipher_len);
@@ -65,7 +65,25 @@ int main(){
 	//string decrypt
 	int plain_len;
 	char* plain = sym_decrypt(cipher, cipher_len, key, &plain_len);
-	printf("plain text: %s\t\t lungo: %i\n", plain, plain_len);
+	printf("plain text: %.*s\t\t lungo: %i\n", plain_len, plain, plain_len);
+	
+	free(plain);
+	free(cipher);
+	
+	//test 2
+	printf("test 2 with uint8_t");
+	//string encrypt
+	uint8_t b = 1;
+	l = sizeof(uint8_t);
+	cipher = sym_crypt(&b, l, key, &cipher_len);
+	
+	printf("\n\ncipher: %s\t\t lungo: %i\n\n", cipher, cipher_len);
+	
+	//string decrypt
+	unsigned char* unsigned_plain = sym_decrypt(cipher, cipher_len, key, &plain_len);
+	printf("plain_len: %i\n\n", plain_len);
+	
+	printf("memcmp: %i\n",memcmp(&b, unsigned_plain, l));
 	
 	return 0;	
 }
