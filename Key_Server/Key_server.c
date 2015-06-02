@@ -84,6 +84,26 @@ unsigned char* generate_nonce(int len){
 	return nonce;
 }
 
+void print_unsigned_char(unsigned char* msg, int len){
+	int i;
+	for(i = 0 ; i < len ; i++)
+		printf("%02x", msg[i]);
+}
+
+void print_secrets(secret_piece_t* secrets, int len){
+	int i;
+	printf("Secrets\n");
+	for(i = 0 ; i < len ; i++){
+		printf("Blocco %i--------------------------\n", i);
+		if(secrets[i].secret != NULL){
+			printf("id:\t\t"); print_unsigned_char(secrets[i].id, 32); printf("\n");
+			printf("x:\t\t%i\n", secrets[i].x);
+			printf("dim_secret:\t%i\n", secrets[i].dim_secret);
+			printf("secret:\t\t"); print_unsigned_char(secrets[i].secret, secrets[i].dim_secret); printf("\n");
+		}
+	}
+	printf("----------------------------------\n");
+}
 
 /*
  * argomenti
@@ -95,7 +115,7 @@ unsigned char* generate_nonce(int len){
  */
 int main(int argc, char* argv[]) {
 	//variabili
-	unsigned char* support_msg;
+	int i;
 	unsigned char* hash = (unsigned char*)malloc(32);
 	
 	int my_server_number;
@@ -119,7 +139,7 @@ int main(int argc, char* argv[]) {
 	unsigned char* shared_key;
 	
 	secret_piece_t secrets[N_ELEMENTS];
-	int next_elem = 0;
+	int next_elem;
 	
 	//controlli
 	if(argc < 4) {
@@ -143,6 +163,11 @@ int main(int argc, char* argv[]) {
 	}
 	
 	printf("Setup\n\tip: %s\n\tport: %i\n\tserver number: %i\n", addr, port, my_server_number); 
+	
+	for(i = 0 ; i < N_ELEMENTS ; i++){
+		secrets[i].secret = NULL;
+	}
+	next_elem = 0;
 	
 	//set up
 	socketF = create_socket(addr, port);
@@ -221,10 +246,11 @@ int main(int argc, char* argv[]) {
 		msg = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, shared_key, &msg_len);
 		printf("msg_len: %i\n", msg_len);
 		
+		//le 3 righe sotto possono essere sostituite con un memcmp ?????????????
 		uint8_t test;
 		memcpy(&test, msg, msg_len);
 		if(test == UPLOAD_KEY){
-			//upload key
+			printf("\t\tUPLOAD COMMAND\n\n");
 			
 			//free
 			free(enc_msg);
@@ -237,24 +263,13 @@ int main(int argc, char* argv[]) {
 			
 			//decrypt command
 			msg = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, shared_key, &msg_len);
-			printf("-------->UPLOAD COMMAND= %.*s\n", msg_len, (char*)msg);
-			
+	
 			//check integrity
-			/*support_msg = (unsigned char*)malloc(msg_len - 32);
-			memcpy(support_msg, msg, msg_len - 32);
-			memcpy(hash, msg + msg_len - 32, 32);
-			if(verify_hash(support_msg, msg_len - 32, NULL, hash) == 1){
+			if(verify_hash(msg, msg_len - 32, NULL, msg + msg_len - 32) != 1){
 				printf("corrupted\n");
 				continue;
 			}
-			free(support_msg);*/
-			//forse puo funzionare anche facendo così //////////////////////////////////////////////
-			
-			if(verify_hash(msg, msg_len - 32, NULL, msg + msg_len - 32) == 0){
-				printf("corrupted\n");
-				continue;
-			}
-			
+			printf("Message not corrupted\n");
 			
 			//fill array field
 			memcpy(secrets[next_elem].id, msg, 32);
@@ -263,15 +278,21 @@ int main(int argc, char* argv[]) {
 			secrets[next_elem].secret = (unsigned char*)malloc(secrets[next_elem].dim_secret);
 			memcpy(secrets[next_elem].secret, msg + 32 + sizeof(int) + sizeof(int), secrets[next_elem].dim_secret);
 			
+			print_secrets(secrets, N_ELEMENTS);
+			
+			printf("old head: %i\n", next_elem);
 			do{
 				next_elem = (next_elem + 1) % N_ELEMENTS;
 			}while( secrets[next_elem].secret != NULL );
+			printf("new head: %i\n", next_elem);
 			
 			//free
 			free(enc_msg);
 			free(msg);
+			
+			
 		} else{
-			//download key
+			printf("\t\tDOWNLOAD COMMAND\n\n");
 			
 			//free
 			free(enc_msg);
@@ -287,15 +308,10 @@ int main(int argc, char* argv[]) {
 			printf("-------->DOWNLOAD COMMAND= %.*s\n", msg_len, (char*)msg);
 			
 			//check integrity
-			/////////////////////////////////////////////////////////////////////////////guarda sopra
-			support_msg = (unsigned char*)malloc(msg_len - 32);
-			memcpy(support_msg, msg, msg_len - 32);
-			memcpy(hash, msg + msg_len - 32, 32);
-			if(verify_hash(support_msg, msg_len - 32, NULL, hash) == 1){
-				printf("corrupted");
+			if(verify_hash(msg, msg_len - 32, NULL, msg + msg_len - 32) != 1){
+				printf("corrupted\n");
 				continue;
 			}
-			free(support_msg);
 			
 			//search for element
 			int i = 0;
@@ -341,6 +357,10 @@ int main(int argc, char* argv[]) {
 			memset(secrets[i].secret, 0, secrets[i].dim_secret);
 			free(secrets[i].secret);
 		}
+		
+		
+		
+		free(hash);
 	}
 	
 	return 0;
