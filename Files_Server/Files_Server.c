@@ -1045,11 +1045,12 @@ int main(int argc, char* argv[]){
 			switch(ret){
 				case UPLOAD:
 					ret = upload(&server, server.connection, &client);
-				
+					/*
 					if(ret != 1)
 						send_code(server.connection, UPDATE_FAIL);
 					else
 						send_code(server.connection, UPDATE_OK);
+					*/
 					disconnect(&server);								
 					break;
 				case DOWNLOAD:

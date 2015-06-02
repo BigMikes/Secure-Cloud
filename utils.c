@@ -13,7 +13,7 @@ unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	FILE* input_file;
 	EVP_MD_CTX sha_ctx;
 	
-	if( (source == NULL && name_file == NULL) || (source != NULL && name_file != NULL) || (source != NULL && name_file == NULL && source_size <= 0) ){
+	if( (source == NULL && name_file == NULL) || (source != NULL && source_size <= 0) ){
 		return NULL;
 	}
 	
