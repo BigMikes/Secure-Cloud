@@ -213,11 +213,13 @@ int main(int argc, char* argv[]) {
 		
 		//read command
 		recv_msg(socketF, &enc_msg_len, sizeof(int));
+		printf("enc_msg_len: %i\n", enc_msg_len);
 		enc_msg = (unsigned char*)malloc(enc_msg_len);
 		recv_msg(socketF, enc_msg, enc_msg_len);
 		
 		//decrypt command
 		msg = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, shared_key, &msg_len);
+		printf("msg_len: %i\n", msg_len);
 		
 		uint8_t test;
 		memcpy(&test, msg, msg_len);
@@ -238,21 +240,21 @@ int main(int argc, char* argv[]) {
 			printf("-------->UPLOAD COMMAND= %.*s\n", msg_len, (char*)msg);
 			
 			//check integrity
-			support_msg = (unsigned char*)malloc(msg_len - 32);
+			/*support_msg = (unsigned char*)malloc(msg_len - 32);
 			memcpy(support_msg, msg, msg_len - 32);
 			memcpy(hash, msg + msg_len - 32, 32);
 			if(verify_hash(support_msg, msg_len - 32, NULL, hash) == 1){
-				printf("corrupted");
+				printf("corrupted\n");
 				continue;
 			}
-			free(support_msg);
+			free(support_msg);*/
 			//forse puo funzionare anche facendo così //////////////////////////////////////////////
-			/*
-			if(verify_hash(msg, msg_len - 32, NULL, msg + msg_len - 32) == 1){
-				printf("corrupted");
+			
+			if(verify_hash(msg, msg_len - 32, NULL, msg + msg_len - 32) == 0){
+				printf("corrupted\n");
 				continue;
 			}
-			*/
+			
 			
 			//fill array field
 			memcpy(secrets[next_elem].id, msg, 32);
