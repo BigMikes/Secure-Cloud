@@ -21,7 +21,7 @@
 #define KEY_DIM EVP_CIPHER_key_length(EVP_aes_256_cbc())
 #define MAX_USR_NAME 20
 #define MAX_FILE_NAME 20
-#define SHARING_KEY_PORT 4444
+#define SHARING_KEY_PORT 5555
 #define MAX_CON 10
 #define SERVER_ID 1
 
@@ -265,6 +265,24 @@ void* read_formatted(SSL* conn, int* size){
 }
 
 /*
+* Writes the messages in format <size>||<buffer> in the socket
+* Returns the number of bytes written in the socket
+* or -1 if an error occurs 
+*/
+int write_formatted(int socket, unsigned char* buffer, int size){
+	int ret;
+	if(socket < 0 || buffer == NULL || size <= 0)
+		return -1;
+	ret = write(socket, &size, sizeof(int));
+	if(ret != sizeof(int))
+		return -1;
+	ret = write(socket, buffer, size);
+	if(ret != size)
+		return -1;
+	return ret;
+}
+
+/*
 * Authenticates the client and returns the command that he/she wants perform.
 * Return NO_AUTH in case of error or bad client password
 */
@@ -388,10 +406,23 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 	//Now send the shares. One to every connected peers.
 	for(i = 0; i < n_peers; i++){
 		temp = 0;
-		//Build the message <CMD> <hash_file_id> <X> <Dim_share> <Share> <Hash(payload)>
-		dim_plaintext = 2*sizeof(int) + shares[i].dim_piece + 2*HASH_DIM + sizeof(uint8_t);
-		memcpy(plaintext, &cmd, sizeof(uint8_t));			//<CMD>
-		temp += sizeof(uint8_t);
+		//Encrypt the command
+		ciphertext = sym_crypt(&cmd, sizeof(cmd), server->session_key[i], &dim_ciphertext);
+		if(ciphertext == NULL){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			return -1;
+		}
+		//Send <dim><Ek(CMD)>
+		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
+		free(ciphertext);
+		if(ret == -1){
+			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
+			free(shares);
+			return -1;
+		}
+		//Build the message <hash_file_id> <X> <Dim_share> <Share> <Hash(payload)>
+		dim_plaintext = 2*sizeof(int) + shares[i].dim_piece + 2*HASH_DIM;
 		memcpy(plaintext + temp, file_id, HASH_DIM);	 		//<Hash_file_id>
 		temp += HASH_DIM;
 		memcpy(plaintext + temp, &shares[i].x, sizeof(int));		//<X>
@@ -414,16 +445,8 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 			return -1;
 		}
 		//Send the envelope = <dim_ciphertext><ciphertext>
-		ret = write(server->key_server[i], &dim_ciphertext, sizeof(int));
-		if(ret != sizeof(int)){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
-			free(ciphertext);
-			free(hash);
-			return -1;
-		}
-		ret = write(server->key_server[i], ciphertext, dim_ciphertext);
-		if(ret != dim_ciphertext){
+		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
+		if(ret == -1){
 			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 			free(shares);
 			free(ciphertext);
@@ -445,6 +468,8 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 * Return -1 if error occurs
 */
 int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned char* file_id){
+	
+	
 	return 1;
 }
 
@@ -730,6 +755,8 @@ unsigned char* key_estab_protocol(int socket){
 		goto error;
 	//Decrypt the ciphertext with K
 	plaintext = sym_decrypt(buffer, dim, session_key, &outlen);
+	if(outlen != EXPECTED_DIM[2])
+		goto error;
 	
 	/*DEBUG*/
 	printf("-------->Received M3: %i\n", (int)*plaintext);
