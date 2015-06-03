@@ -961,7 +961,7 @@ void connect_key_server(struct server_ctx* server){
 	server->key_server[server->index] = sock_temp;
 	server->index++;
 	
-	printf("Key Server %i connected, start the key establishment protocol\n", server->index-1);
+	printf("\n\nKey Server %i connected, start the key establishment protocol\n", server->index-1);
 	
 	/*---------KEY ESTABLISHMENT PROTOCOL---------*/
 	server->session_key[server->index-1] = key_estab_protocol(sock_temp);
@@ -1029,7 +1029,7 @@ int main(int argc, char* argv[]){
 		else{			
 			//connect with the client
 			server.to_client_sk = accept_client(server.server_sk);
-			printf("Client conneted, authentication in course\n");
+			printf("\n\nClient conneted, authentication in course\n");
 			
 			//bind the classic socket to ssl socket
 			server.connection = bind_socket_to_SSL(server.ssl_factory, server.to_client_sk);
