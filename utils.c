@@ -241,10 +241,10 @@ char* sym_decrypt(unsigned char* cipher, int cipher_len, unsigned char* key, int
 	outlen_tot += outlen;
 	n += len % block_size;
 	res = EVP_DecryptFinal(ctx, plaintext + outlen_tot, &outlen);
-	if(res == 0){
+	/*if(res == 0){
 		printf("ERROR in decrypting.\n");
 		return NULL;
-	}
+	}*/
 	outlen_tot += outlen;
 	
 	
