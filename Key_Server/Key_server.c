@@ -141,6 +141,9 @@ int main(int argc, char* argv[]) {
 	secret_piece_t secrets[N_ELEMENTS];
 	int next_elem;
 	
+	uint8_t up_key = 1;
+	uint8_t down_key = 2;
+	
 	//controlli
 	if(argc < 4) {
 		printf("Errore nel passaggio dei parametri\n");
@@ -248,9 +251,10 @@ int main(int argc, char* argv[]) {
 		printf("msg_len: %i\n", msg_len);
 		
 		//le 3 righe sotto possono essere sostituite con un memcmp ?????????????
-		uint8_t test;
+		/*uint8_t test;
 		memcpy(&test, msg, msg_len);
-		if(test == UPLOAD_KEY){
+		if(test == UPLOAD_KEY){*/
+		if( memcmp(msg, &up_key, sizeof(uint8_t)) == 0 ){
 			printf("\t\tUPLOAD COMMAND\n\n");
 			
 			//free
@@ -293,96 +297,102 @@ int main(int argc, char* argv[]) {
 			
 			
 		} else {
-			printf("\t\tDOWNLOAD COMMAND\n\n");
-			
-			//free
-			free(enc_msg);
-			free(msg);
-			
-			//read command <dim><Ek(file_id)>
-			recv_msg(socketF, &enc_msg_len, sizeof(int));
-			enc_msg = (unsigned char*)malloc(enc_msg_len);
-			recv_msg(socketF, enc_msg, enc_msg_len);
-			
-			//decrypt command
-			msg = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, shared_key, &msg_len);
-			printf("-------->DOWNLOAD COMMAND: ");print_unsigned_char(msg, msg_len); printf("\n");
-			
-			//search for element
-			i = 0;
-			int stop = 0;
-			//memcpy(hash, msg , 32);
-			while( (i < N_ELEMENTS) && (stop == 0) ){
-				printf("search index: %i\n", i);
-				if(secrets[i].secret != NULL){
-					if(memcmp(secrets[i].id, msg, 32) == 0){
+			if( memcmp(msg, &down_key, sizeof(uint8_t)) == 0 ){
+				printf("\t\tDOWNLOAD COMMAND\n\n");
+				
+				//free
+				free(enc_msg);
+				free(msg);
+				
+				//read command <dim><Ek(file_id)>
+				recv_msg(socketF, &enc_msg_len, sizeof(int));
+				enc_msg = (unsigned char*)malloc(enc_msg_len);
+				recv_msg(socketF, enc_msg, enc_msg_len);
+				
+				//decrypt command
+				msg = (unsigned char*)sym_decrypt(enc_msg, enc_msg_len, shared_key, &msg_len);
+				printf("-------->DOWNLOAD COMMAND: ");print_unsigned_char(msg, msg_len); printf("\n");
+				
+				//search for element
+				i = 0;
+				int stop = 0;
+				//memcpy(hash, msg , 32);
+				while( (i < N_ELEMENTS) && (stop == 0) ){
+					printf("search index: %i\n", i);
+					if(secrets[i].secret != NULL){
+						if(memcmp(secrets[i].id, msg, 32) == 0){
+							stop = 1;
+							break;
+						}
+					}
+					/*if( (memcmp(secrets[i].id, msg, 32) == 0) && (secrets[i].secret != NULL) ){
 						stop = 1;
 						break;
-					}
+					}*/
+					i++;
 				}
-				/*if( (memcmp(secrets[i].id, msg, 32) == 0) && (secrets[i].secret != NULL) ){
-					stop = 1;
-					break;
-				}*/
-				i++;
-			}
-			
-			//free
-			free(enc_msg);
-			free(msg);
-			
-			printf("\n");
-			
-			if( i == N_ELEMENTS){
-				printf("NOT FOUND\n");		/////////////////////////////////////////scegliere cosa fare
 				
-				//send response
-				uint8_t response = 3;
-				msg_len = sizeof(uint8_t);
+				//free
+				free(enc_msg);
+				free(msg);
+				
+				printf("\n");
+				
+				if( i == N_ELEMENTS){
+					printf("NOT FOUND\n");
+					
+					//send response
+					uint8_t response = 3;
+					msg_len = sizeof(uint8_t);
+					msg = (unsigned char*)malloc(msg_len);
+					memcpy(msg, &response, msg_len);
+					
+					enc_msg = sym_crypt(msg, msg_len, shared_key, &enc_msg_len);
+					
+					send_msg(socketF, &enc_msg_len, sizeof(int));
+					send_msg(socketF, enc_msg, enc_msg_len);
+					
+					free(msg);
+					free(enc_msg);
+					
+					continue;
+				}
+				print_secrets(secrets, N_ELEMENTS);
+				printf("find at position: %i\n", i);
+				
+				
+				
+				//create response
+				msg_len = 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret + 32;
 				msg = (unsigned char*)malloc(msg_len);
-				memcpy(msg, &response, msg_len);
+				memcpy(msg, secrets[i].id, 32);
+				memcpy(msg + 32, &secrets[i].x, sizeof(int));
+				memcpy(msg + 32 + sizeof(int), &secrets[i].dim_secret, sizeof(int));
+				memcpy(msg + 32 + sizeof(int) + sizeof(int), secrets[i].secret, secrets[i].dim_secret);
+				hash = do_hash(msg, (msg_len - 32), NULL);
+				memcpy(msg + 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret, hash, 32);
+				/////////////////////////////controllare se per caso funziona al posto delle due righe sopra
+				//(msg + 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret) = do_hash(msg, (msg_len - 32), NULL);
 				
+				//encrypt response
 				enc_msg = sym_crypt(msg, msg_len, shared_key, &enc_msg_len);
 				
+				//send
 				send_msg(socketF, &enc_msg_len, sizeof(int));
 				send_msg(socketF, enc_msg, enc_msg_len);
 				
-				free(msg);
+				//free
 				free(enc_msg);
+				free(msg);
 				
+				//blank secret
+				memset(secrets[i].secret, 0, secrets[i].dim_secret);
+				free(secrets[i].secret);
+				
+			} else {
+				printf("Unknow command\n");
 				continue;
 			}
-			print_secrets(secrets, N_ELEMENTS);
-			printf("find at position: %i\n", i);
-			
-			
-			
-			//create response
-			msg_len = 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret + 32;
-			msg = (unsigned char*)malloc(msg_len);
-			memcpy(msg, secrets[i].id, 32);
-			memcpy(msg + 32, &secrets[i].x, sizeof(int));
-			memcpy(msg + 32 + sizeof(int), &secrets[i].dim_secret, sizeof(int));
-			memcpy(msg + 32 + sizeof(int) + sizeof(int), secrets[i].secret, secrets[i].dim_secret);
-			hash = do_hash(msg, (msg_len - 32), NULL);
-			memcpy(msg + 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret, hash, 32);
-			/////////////////////////////controllare se per caso funziona al posto delle due righe sopra
-			//(msg + 32 + sizeof(int) + sizeof(int) + secrets[i].dim_secret) = do_hash(msg, (msg_len - 32), NULL);
-			
-			//encrypt response
-			enc_msg = sym_crypt(msg, msg_len, shared_key, &enc_msg_len);
-			
-			//send
-			send_msg(socketF, &enc_msg_len, sizeof(int));
-			send_msg(socketF, enc_msg, enc_msg_len);
-			
-			//free
-			free(enc_msg);
-			free(msg);
-			
-			//blank secret
-			memset(secrets[i].secret, 0, secrets[i].dim_secret);
-			free(secrets[i].secret);
 		}
 		
 		
