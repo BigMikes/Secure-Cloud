@@ -720,19 +720,27 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 		return -1;
 	}
 	
+	//Sends the key
+	ret = secure_write(0, key, KEY_DIM, conn);
+	printf("Arrivato a linea 725 ret = %i\n", ret);
+	memset(key, 0, KEY_DIM);
+	
+	free(key);
+	
 	//Read the dimension of file
 	dim = dim_of_file(filestore);
 	
 	//Send the dimention of file
 	ret = secure_write(0, &dim, sizeof(int), conn);
 	if(ret != sizeof(int)){
+		printf("Arrivato a linea 736\n");
 		send_code(conn, NO_FILE);
 		free(filestore);
 		fclose(fd);
 		return -1;
 	}
 	
-	
+	printf("Arrivato a linea 742\n");
 	n_rounds = dim / BUF_DIM;
 	last_round = dim % BUF_DIM;
 	
@@ -747,15 +755,9 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	//Last round
 	ret = fread(buffer, sizeof(char), last_round, fd);	
 	ret = secure_write(0, buffer, ret, conn);
-	
+	printf("Arrivato a linea 757\n");
 	fclose(fd);
 	
-	//Sends the key
-	ret = secure_write(0, key, KEY_DIM, conn);
-	
-	memset(key, 0, KEY_DIM);
-	
-	free(key);
 	free(file_id);
 	free(filestore);
 	return ret;
