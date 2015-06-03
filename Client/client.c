@@ -406,10 +406,19 @@ int main(int argc,char* argv[]){
 		unsigned char* key;
 		int key_len;
 		
+		//wait for response
+		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
+		check_ret(ret, sizeof(uint8_t));
+		if(server_response == 0){
+			printf("Connection refused.\n");
+			exit(-1);
+		}
+		
 		//read key
 		key_len = EVP_CIPHER_key_length(SYM_CIPHER);
 		key = (unsigned char*)malloc(key_len);
-		ret = secure_read(0, &key, key_len, connection);
+		ret = secure_read(0, key, key_len, connection);
+		printf("Ret = %i, key_len = %i\n", ret, key_len);
 		check_ret(ret, key_len);
 		
 		//read Ek(file || H(file))
@@ -420,18 +429,23 @@ int main(int argc,char* argv[]){
 		//read file size
 		ret = secure_read(0, &cipher_len, sizeof(int), connection);
 		check_ret(ret, sizeof(int));
+		printf("Ret = %i, cipher_len = %i\n", ret, cipher_len);
 		
 		//read file
 		cipher_buff = malloc(cipher_len);
 		if(cipher_buff == NULL)
 			exit(-1);
-		ret = secure_read(0, cipher_buff, cipher_len, connection);
-		if(ret != cipher_len){
-			memset(cipher_buff, 0, ret);
-			free(cipher_buff);
-			exit(-1);
+		ret = 0;
+		while(ret < cipher_len){
+			ret += secure_read(0, cipher_buff + ret, cipher_len - ret, connection);
+			printf("Ret = %i\n", ret);
+			/*if(ret != cipher_len){
+				memset(cipher_buff, 0, ret);
+				free(cipher_buff);
+				exit(-1);
+			}*/
 		}
-		
+		printf("Ret = %i\n", ret);
 		//decrypt
 		int plain_len;
 		char* plain = sym_decrypt(cipher_buff, cipher_len, key, &plain_len);
