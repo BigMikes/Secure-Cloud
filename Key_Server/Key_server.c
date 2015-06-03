@@ -325,10 +325,6 @@ int main(int argc, char* argv[]) {
 							break;
 						}
 					}
-					/*if( (memcmp(secrets[i].id, msg, 32) == 0) && (secrets[i].secret != NULL) ){
-						stop = 1;
-						break;
-					}*/
 					i++;
 				}
 				
