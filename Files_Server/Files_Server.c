@@ -493,6 +493,8 @@ int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned cha
 	shares = malloc(sizeof(struct secret_pieces) * n_peers);
 	
 	for(i = 0; i < n_peers; i++){
+		if(server->session_key[i] == NULL || server->key_server[i] <= 0)
+			continue;
 		//Encrypt the command
 		ciphertext = sym_crypt(&cmd, sizeof(cmd), server->session_key[i], &dim_ciphertext);
 		if(ciphertext == NULL){
@@ -558,7 +560,15 @@ int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned cha
 		//Thus, copy in the secret_pieces struct the piece of secret 
 		memcpy(&shares[n_response].x, plaintext + HASH_DIM, sizeof(int));
 		memcpy(&shares[n_response].dim_piece, plaintext + HASH_DIM + sizeof(int), sizeof(int));
+		shares[n_response].piece = malloc(shares[n_response].dim_piece);
 		memcpy(shares[n_response].piece, plaintext + HASH_DIM + sizeof(int) + sizeof(int), shares[n_response].dim_piece);
+		
+		/*DEBUG*/
+		printf("X = %i\n", shares[n_response].x);
+		printf("DIM = %i\n", shares[n_response].dim_piece);
+		printf("Piece =");
+		print_bytes_debug(shares[n_response].piece, shares[n_response].dim_piece);
+		printf("\n");
 		
 		n_response++;
 		memset(plaintext, 0, dim_plaintext);
@@ -699,7 +709,7 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	//Computed the hash of file_name and username
 	strcpy(buffer, client->file_name);
 	strcat(buffer, client->name);
-	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , NULL);
+	file_id = do_hash(buffer, strlen(client->file_name) + strlen(client->name) , filestore);
 	
 	//Retrieve the key
 	ret = Secret_retrieve(server, &key, file_id);
