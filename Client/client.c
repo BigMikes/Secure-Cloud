@@ -406,14 +406,6 @@ int main(int argc,char* argv[]){
 		unsigned char* key;
 		int key_len;
 		
-		//wait for response
-		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
-		check_ret(ret, sizeof(uint8_t));
-		if(server_response == 0){
-			printf("Connection refused.\n");
-			exit(-1);
-		}
-		
 		//read key
 		key_len = EVP_CIPHER_key_length(SYM_CIPHER);
 		key = (unsigned char*)malloc(key_len);
@@ -422,10 +414,9 @@ int main(int argc,char* argv[]){
 		check_ret(ret, key_len);
 		
 		//read Ek(file || H(file))
-		//symmetric_decrypt_receive(connection, file_name, key, key_len);
-		
 		int cipher_len;
 		unsigned char* cipher_buff;
+		
 		//read file size
 		ret = secure_read(0, &cipher_len, sizeof(int), connection);
 		check_ret(ret, sizeof(int));
@@ -446,9 +437,12 @@ int main(int argc,char* argv[]){
 			}*/
 		}
 		printf("Ret = %i\n", ret);
+		
 		//decrypt
 		int plain_len;
 		char* plain = sym_decrypt(cipher_buff, cipher_len, key, &plain_len);
+		
+		printf("plain: %.*s\n", plain_len, plain);
 		
 		//write to file
 		FILE* output = fopen(file_name, "w");
@@ -456,12 +450,18 @@ int main(int argc,char* argv[]){
 			printf("Impossible to write file");
 			exit(-1);
 		}
-		ret = fwrite(plain, sizeof(char), plain_len, output);
+		ret = fwrite(plain, sizeof(char), plain_len - 32, output);
 		check_ret(ret, plain_len);
 		fclose(output);
 		
+		//check hash
+		if(verify_hash(NULL, 0, file_name, (unsigned char*)(plain + plain_len -32)) != 1){
+			printf("corrupted\n");
+			exit(-1);
+		}
+		printf("uncorrupted file \"%.*s\" ready.\n", dim_file_name, file_name);
+		
 		//clear
-		memset(cipher_buff, 0, cipher_len);
 		free(cipher_buff);
 		free(plain);
 		memset(key, 0, key_len);
