@@ -306,7 +306,7 @@ int main(int argc,char* argv[]){
 	dim_password = strlen(password);
 	printf("password: %s len: %i\n", password, dim_password);
 	
-	printf("\n Operation Upload or Download (u/d):\n");
+	printf("\nOperation Upload or Download (u/d):\n");
 	support = (char)getchar();
 	support = (char)getchar();
 	printf("Command: %c\n", support);
@@ -352,18 +352,18 @@ int main(int argc,char* argv[]){
 	ret = secure_write(0, file_name, dim_file_name, connection); 
 	check_ret(ret, dim_file_name);
 	
+	//wait for response
+	ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
+	check_ret(ret, sizeof(uint8_t));
+	if(server_response == 0){
+		printf("Connection refused.\n");
+		exit(-1);
+	}
 	
 	if(command == CMD_UPLOAD){
 		//UPLOAD
-
-		//wait for response
-		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
-		check_ret(ret, sizeof(uint8_t));
-		if(server_response == 0){
-			printf("Connection refused.\n");
-			exit(-1);
-		}
-		printf("print something\n");
+		printf("UPLOAD\n");
+		
 		//symmetric cipher
 		unsigned char* key;
 		int key_len;
@@ -400,7 +400,7 @@ int main(int argc,char* argv[]){
 		memset(key, 0, key_len);
 		free(key);
 	} else {
-		//DOWNLOAD
+		printf("DOWNLOAD\n");
 		
 		//variabili
 		unsigned char* key;
