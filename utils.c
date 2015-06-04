@@ -44,11 +44,11 @@ unsigned char* do_hash(unsigned char* source, int source_size, char* name_file){
 	EVP_DigestFinal(&sha_ctx, hash, &digest_size);
 	
 	EVP_MD_CTX_cleanup(&sha_ctx);
-	
+	/*--_DEBUG---
 	printf("sha256 of the passed data is: \n");
 	for(i = 0 ; i < digest_size ; i++)
 		printf("%02x", hash[i]);
-	printf("\n");
+	printf("\n");*/
 	
 	return hash;
 }
