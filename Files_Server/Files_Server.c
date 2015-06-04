@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/select.h>
 #include "Shamir_sharing.h"
+#include <errno.h>
 
 /*---------CONSTANTS--------------*/
 #define PUB_KEY_PATH 		"./Certs/keyserver_pubkey"
@@ -84,6 +85,7 @@ void help(){
 int create_socket(char* address, int port){
 	int ret;
 	int lst_sk;		//socket del server
+	int optval;
 	//struttura dati per l'indirizzo e porta del server
 	struct sockaddr_in my_addr;
 	memset(&my_addr, 0, sizeof(my_addr));
@@ -97,7 +99,7 @@ int create_socket(char* address, int port){
       		exit(-1);
 	}
 	//setto il riuso dell'indirizzo
-	int optval = 1;
+	optval = 1;
 	setsockopt(lst_sk, SOL_SOCKET,SO_REUSEADDR, &optval, sizeof(optval));
 	//lego l'indirizzo al socket
 	ret = bind(lst_sk, (struct sockaddr*)&my_addr, sizeof(my_addr));
@@ -125,9 +127,9 @@ int accept_client(int server_sk){
 	memset(&client_addr, 0, sizeof(client_addr));
 	//attendo nuove connessioni da parte dei client
 	//client_addr_len = sizeof(client_addr);
-	com_sk = accept(server_sk, (struct sockaddr*)&client_addr, &client_addr_len);
+	com_sk = accept(server_sk, NULL, NULL);
 	if(com_sk == -1){
-		printf("Error in accept\n");
+		printf("Error in accept: %s\n", strerror(errno));
 		exit(-1);	
 	}
 	return com_sk;
@@ -170,48 +172,48 @@ void server_cleanup(struct server_ctx* server){
 * Function that checks the password
 */
 int find_usr_pwd(unsigned char* username, unsigned char* pwd, int dim_pwd){
-    FILE *fp;
-    int lines = 0;   // count how many lines are in the file
-    int j = 0;
-    int c;
-    unsigned char* hash_pwd;
-    char tmp_user[MAX_USR_NAME]; 		//Dimensione massima del nome utente 
-    char tmp_pwd[HASH_DIM];
-    int ret;
+	FILE *fp;
+	int lines = 0;   // count how many lines are in the file
+    	int j = 0;
+    	int c;
+    	unsigned char* hash_pwd;
+    	char tmp_user[MAX_USR_NAME]; 		//Dimensione massima del nome utente 
+    	char tmp_pwd[HASH_DIM];
+    	int ret;
     
-    fp = fopen("pwd.txt", "r");
-    if(fp == NULL)
-    	return -1;
+    	fp = fopen("pwd.txt", "r");
+    	if(fp == NULL)
+    		return -1;
     
-    while(!feof(fp)) {
-        c=fgetc(fp);
-        if(c == '\n')
-            lines++;
-    }
+    	while(!feof(fp)) {
+        	c=fgetc(fp);
+        	if(c == '\n')
+            		lines++;
+    	}	
     
-    if(lines == 0){
+    	if(lines == 0){
+    		fclose(fp);
+    		return -1;
+    	}
+    
+    	hash_pwd = do_hash(pwd, dim_pwd, NULL);
+    
+    	rewind(fp);  // Line I added
+        // read each line and put into accounts
+    	while(j != lines) {
+        	fscanf(fp, "%s ", tmp_user);
+        	fread(tmp_pwd, HASH_DIM, 1, fp);
+        	if(strcmp(tmp_user, username) == 0){
+        		ret = CRYPTO_memcmp(hash_pwd, tmp_pwd, HASH_DIM);
+        		free(hash_pwd);
+        		fclose(fp);
+        		return (ret == 0)? 1 : 0;
+        	}
+       		j++;
+    	}
+    	free(hash_pwd);
     	fclose(fp);
     	return -1;
-    }
-    
-    hash_pwd = do_hash(pwd, dim_pwd, NULL);
-    
-    rewind(fp);  // Line I added
-        // read each line and put into accounts
-    while(j != lines) {
-        fscanf(fp, "%s ", tmp_user);
-        fread(tmp_pwd, HASH_DIM, 1, fp);
-        if(strcmp(tmp_user, username) == 0){
-        	ret = CRYPTO_memcmp(hash_pwd, tmp_pwd, HASH_DIM);
-        	free(hash_pwd);
-        	fclose(fp);
-        	return (ret == 0)? 1 : 0;
-        }
-       	j++;
-    }
-    free(hash_pwd);
-    fclose(fp);
-    return -1;
 }
 
 /*
@@ -389,6 +391,7 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 	int ret;
 	int temp = 0;
 	uint8_t cmd = UP_KEY;
+	int counter = 0;
 	
 	if(server == NULL || key == NULL || file_id == NULL)
 		return -1;
@@ -410,18 +413,22 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 		//Encrypt the command
 		ciphertext = sym_crypt(&cmd, sizeof(cmd), server->session_key[i], &dim_ciphertext);
 		if(ciphertext == NULL){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
-			return -1;
+			continue;
 		}
 		//Send <dim><Ek(CMD)>
 		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
 		free(ciphertext);
 		if(ret == -1){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
-			return -1;
+			close(server->key_server[i]);
+			server->key_server[i] = 0;
+			server->session_key[i] = NULL;
+			continue;
 		}
+		
+		/*DEBUG*/
+		printf("X = %i\n", shares[i].x);
+		print_bytes_debug(shares[i].piece, shares[i].dim_piece);
+		
 		//Build the message <hash_file_id> <X> <Dim_share> <Share> <Hash(payload)>
 		dim_plaintext = 2*sizeof(int) + shares[i].dim_piece + 2*HASH_DIM;
 		memcpy(plaintext + temp, file_id, HASH_DIM);	 		//<Hash_file_id>
@@ -440,25 +447,27 @@ int Secret_splitting(struct server_ctx* server, unsigned char* key, unsigned cha
 		//Encrypt the message with i-th session key		
 		ciphertext = sym_crypt(plaintext, dim_plaintext, server->session_key[i], &dim_ciphertext);
 		if(ciphertext == NULL){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
 			free(hash);
-			return -1;
+			continue;
 		}
 		//Send the envelope = <dim_ciphertext><ciphertext>
 		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
 		if(ret == -1){
-			memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
-			free(shares);
 			free(ciphertext);
 			free(hash);
-			return -1;
+			close(server->key_server[i]);
+			server->key_server[i] = 0;
+			server->session_key[i] = NULL;
+			continue;
 		}
 		free(hash);
 		free(ciphertext);
+		counter++;
 	}
 	memset(shares, 0, sizeof(struct secret_pieces) * n_peers);
 	free(shares);
+	if(counter < needed)				//If i have sent a number of secret pieces less than the needed, the splitting has failed
+		return -1;
 	return 1;
 }
 
@@ -504,6 +513,9 @@ int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned cha
 		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
 		free(ciphertext);
 		if(ret == -1){
+			close(server->key_server[i]);
+			server->key_server[i] = 0;
+			server->session_key[i] = NULL;
 			continue;
 		}
 		
@@ -517,12 +529,18 @@ int Secret_retrieve(struct server_ctx* server, unsigned char** key, unsigned cha
 		ret = write_formatted(server->key_server[i], ciphertext, dim_ciphertext);
 		free(ciphertext);
 		if(ret == -1){
+			close(server->key_server[i]);
+			server->key_server[i] = 0;
+			server->session_key[i] = NULL;
 			continue;
 		}
 		
 		//Read the response
 		ret = read(server->key_server[i], &dim_ciphertext, sizeof(int));
 		if(ret != sizeof(int)){
+			close(server->key_server[i]);
+			server->key_server[i] = 0;
+			server->session_key[i] = NULL;
 			continue;
 		}		
 		ciphertext = malloc(dim_ciphertext);
@@ -760,7 +778,7 @@ int download(struct server_ctx* server, SSL* conn, struct client_ctx* client){
 	
 	free(file_id);
 	free(filestore);
-	return ret;
+	return 1;
 }
 
 
@@ -1057,20 +1075,24 @@ int main(int argc, char* argv[]){
 			switch(ret){
 				case UPLOAD:
 					ret = upload(&server, server.connection, &client);
-					/*
+					
 					if(ret != 1)
-						send_code(server.connection, UPDATE_FAIL);
+						printf("Upload fail\n");
+						//send_code(server.connection, UPDATE_FAIL);
 					else
-						send_code(server.connection, UPDATE_OK);
-					*/
+						printf("Upload ok\n");
+						//send_code(server.connection, UPDATE_OK);
+					
 					disconnect(&server);								
 					break;
 				case DOWNLOAD:
 					ret = download(&server, server.connection, &client);
-					/*
+					
 					if(ret != 1)
-						send_code(server.connection, DOWNLOAD_FAIL);
-					*/
+						printf("Download fail\n");
+						//send_code(server.connection, DOWNLOAD_FAIL);
+					else
+						printf("Download ok\n");
 					disconnect(&server);
 					break;
 			
