@@ -320,12 +320,26 @@ int main(int argc,char* argv[]){
 			command = CMD_DOWNLOAD;
 			break;
 		default:
-			printf("Error");
+			printf("Error\n");
+			if(-1 == close(socketS)){
+				printf("Error in closing operation.\n");
+			}
 			exit(-1);
 	}
 	
 	printf("\nFile name:\n");
 	ret = scanf("%s", file_name);
+	//check if file exist and if is possible to read it
+	if( access( file_name, F_OK|R_OK ) != -1 ) {
+		// file exists
+	} else {
+		// file doesn't exist
+		printf("file doesn't exist or it's impossible to read.\n");
+		if(-1 == close(socketS)){
+			printf("Error in closing operation.\n");
+		}
+		exit(-1);
+	}
 	dim_file_name = strlen(file_name);
 	printf("File: %s len: %i\n", file_name, dim_file_name);
 	
