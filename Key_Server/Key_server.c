@@ -382,19 +382,22 @@ int main(int argc, char* argv[]) {
 				free(msg);
 				
 				//blank secret
+				printf("blanking secret at position %i.\n", i);
 				memset(secrets[i].secret, 0, secrets[i].dim_secret);
 				free(secrets[i].secret);
+				secrets[i].dim_secret = 0;
+				secrets[i].secret = NULL;
+				
+				print_secrets(secrets, N_ELEMENTS);
 				
 			} else {
 				printf("Unknow command\n");
 				continue;
 			}
 		}
-		
-		
-		
-		free(hash);
 	}
+	
+	free(hash);
 	
 	return 0;
 }
