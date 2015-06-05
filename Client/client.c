@@ -231,6 +231,16 @@ void check_ret(int a, int b){
 	fclose(fd);
 }*/
 
+
+int close_ssl(SSL* connection, int socket){
+	int ret = 0;
+	ret += SSL_shutdown(connection);
+	ret += close(socket);
+	SSL_free(connection);
+	
+	return (ret < 0) ? -1 : 0;
+}
+
 //accetta in ingresso indirizzo ip, porta e certificato opzionale
 int main(int argc,char* argv[]){
 	int ret;
@@ -321,7 +331,7 @@ int main(int argc,char* argv[]){
 			break;
 		default:
 			printf("Error\n");
-			if(-1 == close(socketS)){
+			if(-1 == close_ssl(connection, socketS)){
 				printf("Error in closing operation.\n");
 			}
 			exit(-1);
@@ -329,16 +339,19 @@ int main(int argc,char* argv[]){
 	
 	printf("\nFile name:\n");
 	ret = scanf("%s", file_name);
-	//check if file exist and if is possible to read it
-	if( access( file_name, F_OK|R_OK ) != -1 ) {
-		// file exists
-	} else {
-		// file doesn't exist
-		printf("file doesn't exist or it's impossible to read.\n");
-		if(-1 == close(socketS)){
-			printf("Error in closing operation.\n");
+	
+	//In case of Upload command: check if file exist and if is possible to read it
+	if(command == CMD_UPLOAD){
+		if( access( file_name, F_OK|R_OK ) != -1 ) {
+			// file exists
+		} else {
+			// file doesn't exist
+			printf("file doesn't exist or it's impossible to read.\n");
+			if(-1 == close_ssl(connection, socketS)){
+				printf("Error in closing operation.\n");
+			}
+			exit(-1);
 		}
-		exit(-1);
 	}
 	dim_file_name = strlen(file_name);
 	printf("File: %s len: %i\n", file_name, dim_file_name);
@@ -484,7 +497,7 @@ int main(int argc,char* argv[]){
 	
 	
 	/////////////////////////////////////////////////////////////////////cleanup
-	if(-1 == close(socketS)){
+	if(-1 == close_ssl(connection, socketS)){
 		printf("Error in closing operation.\n");
 	}
 	

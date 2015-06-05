@@ -359,10 +359,12 @@ int authenticate_client(SSL* conn, struct client_ctx* client){
 
 
 int disconnect(struct server_ctx* server){
-	int ret = SSL_shutdown(server->connection);
-	close(server->to_client_sk);
+	int ret = 0;
+	ret += SSL_shutdown(server->connection);
+	ret += close(server->to_client_sk);
 	SSL_free(server->connection);
-	return ret;
+	
+	return (ret < 0) ? -1 : 0;
 }
 
 
@@ -1001,6 +1003,7 @@ int main(int argc, char* argv[]){
 	int end = 1;
 	
 	memset(&server, 0, sizeof(struct server_ctx));
+	memset(&client, 0, sizeof(struct client_ctx));
 	//controllo che i parametri obbligatori (address e port) ci siano
 	if(argc < 3){
 		help();
@@ -1100,8 +1103,10 @@ int main(int argc, char* argv[]){
 				default:
 				case NO_AUTH:
 					printf("Client %s authentication failed\n", client.name);
-					send_code(server.connection, AUTH_FAIL);
+					if(SSL_get_shutdown(server.connection) != SSL_RECEIVED_SHUTDOWN)
+						send_code(server.connection, AUTH_FAIL);
 					disconnect(&server);
+			
 			}//End switch
 		}//End if
 	}//End while
