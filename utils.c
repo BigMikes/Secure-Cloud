@@ -151,7 +151,7 @@ unsigned char* sym_crypto_file(char* name_file, unsigned char* hash, int hash_si
 	free(ctx);
 	
 	*cipher_len = outlen_tot;
-	printf("ciphertext long: %i\n", outlen_tot);
+	//printf("ciphertext long: %i\n", outlen_tot);
 	return ciphertext;
 }
 
