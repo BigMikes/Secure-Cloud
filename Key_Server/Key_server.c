@@ -105,6 +105,8 @@ void print_secrets(secret_piece_t* secrets, int len){
 	printf("----------------------------------\n");
 }
 
+
+
 /*
  * argomenti
  * 	indirizzo server
@@ -162,7 +164,11 @@ int main(int argc, char* argv[]) {
 	}
 	else{
 		file_server_pub_key = "./Certs/fileserver_public.pem";
-		private_key = "./Certs/keyserver_privkey.pem";
+		private_key = malloc(strlen("./Certs/keyserver_privkey.pem") + 2);
+		strcpy(private_key, "./Certs/keyserver_privkey");
+		strcat(private_key, argv[3]);
+		strcat(private_key, ".pem");
+		printf("%s\n", private_key);
 	}
 	
 	printf("Setup\n\tip: %s\n\tport: %i\n\tserver number: %i\n", addr, port, my_server_number); 
