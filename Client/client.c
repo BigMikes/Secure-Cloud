@@ -13,6 +13,8 @@
 #define DIM_USER_FIELD 50
 #define CMD_UPLOAD 1
 #define CMD_DOWNLOAD 2
+#define UPDATE_FAIL 	0
+#define UPDATE_OK 	1
 
 int create_socket(char* address, int port){
 	int ret;
@@ -227,12 +229,17 @@ int main(int argc,char* argv[]){
 		
 		//send k
 		ret = secure_write(0, key, key_len, connection); 
-		check_ret(ret, 4);
-	
+		check_ret(ret, key_len);
+		
+		
 		//wait for response
 		ret = secure_read(0, &server_response, sizeof(uint8_t), connection);
 		check_ret(ret, sizeof(uint8_t));
-		
+
+		if(server_response == UPDATE_OK)
+			printf("Upload successfully\n");
+		else
+			printf("Upload error\n");	
 		//clear 
 		memset(cipher_file, 0, cipher_file_len);
 		free(cipher_file);

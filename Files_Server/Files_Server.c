@@ -1075,12 +1075,14 @@ int main(int argc, char* argv[]){
 				case UPLOAD:
 					ret = upload(&server, server.connection, &client);
 					
-					if(ret != 1)
+					if(ret != 1){
 						printf("Upload fail\n");
-						//send_code(server.connection, UPDATE_FAIL);
-					else
+						send_code(server.connection, UPDATE_FAIL);
+					}
+					else{
 						printf("Upload ok\n");
-						//send_code(server.connection, UPDATE_OK);
+						send_code(server.connection, UPDATE_OK);
+					}
 					
 					disconnect(&server);								
 					break;
@@ -1089,7 +1091,6 @@ int main(int argc, char* argv[]){
 					
 					if(ret != 1)
 						printf("Download fail\n");
-						//send_code(server.connection, DOWNLOAD_FAIL);
 					else
 						printf("Download ok\n");
 					disconnect(&server);

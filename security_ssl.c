@@ -5,7 +5,6 @@ int pem_passwd_cb(char *buf, int size, int rwflag, void *password){
  	int ret;
  	printf("Enter your password for private key: ");
 	ret = scanf("%s", buf);
- 	//**********************************************************************************************vulnerabilità di segmentation fault, input > buffer size
 	buf[size - 1] = '\0';
 	return(strlen(buf));
 }
