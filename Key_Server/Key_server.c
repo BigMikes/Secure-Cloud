@@ -9,9 +9,16 @@
 #include <sys/types.h>
 #include <sys/select.h>
 
+#include <signal.h>
+#include <setjmp.h>
+#include <stdnoreturn.h>
+
 #define UPLOAD_KEY 1
 #define DOWNLOAD_KEY 2
 #define N_ELEMENTS 15	//numero di elementi che il server è in grado di gestire
+
+//global parameter
+jmp_buf jump_buffer;
 
 struct secret_piece_s{
 	unsigned char id[32];
@@ -59,7 +66,7 @@ void send_msg(int sock, void* Messaggio, int count){
 	if (write(sock, Messaggio, count) < 0){
 		printf("Impossibile mandare il messaggio.\n");
 		CloseSocket(sock);
-		exit(1);
+		exit(-1);
 	}  
 }
 
@@ -68,7 +75,7 @@ void recv_msg(int sock, void* Messaggio, int count){
 	{
 		printf("Impossibile ricevere il messaggio.\n");
 		CloseSocket(sock);
-		exit(1);
+		exit(-1);
 	}
 	//for debug
 	//printf("Messaggio ricevuto con successo: %s\n", (char*)Messaggio);
@@ -105,7 +112,9 @@ void print_secrets(secret_piece_t* secrets, int len){
 	printf("----------------------------------\n");
 }
 
-
+void signal_handler(int a){
+	longjmp(jump_buffer, 1);
+}
 
 /*
  * argomenti
@@ -138,7 +147,7 @@ int main(int argc, char* argv[]) {
 	unsigned char* nonces;
 	int nonce_len = 4;
 	
-	unsigned char* shared_key;
+	unsigned char* shared_key = NULL;
 	
 	secret_piece_t secrets[N_ELEMENTS];
 	int next_elem;
@@ -182,6 +191,11 @@ int main(int argc, char* argv[]) {
 	socketF = create_socket(addr, port);
 	printf("Connessione al server %s (porta %i) effettuata con successo\n", addr, port);
 	
+	//reg SIGINT
+	signal(SIGINT, signal_handler);
+	if (setjmp(jump_buffer) != 0){
+        goto free;
+	}
 	//hand shake iniziale
 	/////////////////////////////////////////////////M1
 	//send{ File_server, Key_server, noncep }Kf+
@@ -227,6 +241,7 @@ int main(int argc, char* argv[]) {
 	//free
 	free(enc_msg);
 	free(msg);
+	memset(noncep, 0, nonce_len);
 	free(noncep);
 	
 	/////////////////////////////////////////////////M3
@@ -238,6 +253,7 @@ int main(int argc, char* argv[]) {
 	//send msg
 	send_msg(socketF, enc_msg, enc_msg_len);
 	//free
+	memset(nonces, 0, nonce_len);
 	free(nonces);
 	free(enc_msg);
 	
@@ -402,8 +418,12 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	}
-	
+
+free:
+	printf("Close server.\n");
 	free(hash);
+	free(shared_key);
+	CloseSocket(socketF);
 	
 	return 0;
 }
